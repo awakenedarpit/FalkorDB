@@ -124,13 +124,39 @@ export async function POST(request: Request) {
     // Raw memories are still saved even if structured extraction fails.
     let extractedEntities: Array<{ name: string; type: string }> = [];
     let extractedRelations: Array<{ from: string; relation: string; to: string }> = [];
+
+    // Give extraction the existing graph vocabulary so short names and aliases
+    // can resolve to an already-known person instead of creating duplicates.
+    let knownEntities: Array<{ name: string; type: string }> = [];
     try {
+      const knownResult = await graph.query(
+        "MATCH (e:Entity) RETURN e.name AS name, e.type AS type LIMIT 300"
+      );
+      knownEntities = (Array.isArray(knownResult.data) ? knownResult.data : [])
+        .map((row: unknown) => {
+          if (!row || typeof row !== "object") return null;
+          const item = row as { name?: unknown; type?: unknown };
+          return typeof item.name === "string" && typeof item.type === "string"
+            ? { name: item.name, type: item.type }
+            : null;
+        })
+        .filter((item): item is { name: string; type: string } => item !== null);
+    } catch (knownEntityError) {
+      console.error("[GRAPH MEMORY] Could not load known entities:", knownEntityError);
+    }
+
+    try {
+      const knownEntityContext = knownEntities.length
+        ? knownEntities.map((entity) => `- ${entity.type}: ${entity.name}`).join("\n")
+        : "No known entities yet.";
       const extraction = await ai.models.generateContent({
         model: "gemini-flash-lite-latest",
         contents: [
           "Extract knowledge from the user message as JSON only.",
           'Schema: {"entities":[{"name":"string","type":"Person|Project|Team|Skill|Organization|Preference|Place|Other"}],"relationships":[{"from":"entity name","relation":"UPPER_SNAKE_CASE","to":"entity name"}]}.',
           "Create separate Person entities for every named person, including introduced teammates. Include only facts explicit or strongly implied. Relationship endpoints must exactly match entity names. Never invent details. Return empty arrays if no facts.",
+          "Identity resolution rules: when the user gives only a first name or nickname, reuse a known entity's full name if there is exactly one clear match. For example, if the known entities contain Person: Arpit Raj, then 'I'm Arpit' refers to Arpit Raj. Do not create a duplicate short-name person in that case. If multiple known people could match, do not guess; preserve the short name and avoid attaching uncertain personal facts.",
+          "Known entities already in the graph:", knownEntityContext,
           "Message:", message,
         ].join("\n"),
       });
@@ -144,7 +170,36 @@ export async function POST(request: Request) {
         .filter((e) => typeof e.name === "string" && e.name.trim() && typeof e.type === "string")
         .map((e) => ({ name: (e.name as string).trim().slice(0, 120), type: allowedTypes.has(e.type as string) ? e.type as string : "Other" }))
         .slice(0, 30);
-      const canonical = (name: string) => extractedEntities.find((e) => e.name.toLowerCase() === name.toLowerCase())?.name;
+
+      // Deterministic fallback: resolve a short Person name to a unique existing
+      // full name only when the first-name match is unambiguous.
+      const normalizeName = (value: string) => value.toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
+      const knownPeople = knownEntities.filter((entity) => entity.type === "Person");
+      const resolveKnownPerson = (name: string, type: string) => {
+        if (type !== "Person") return name;
+        const normalized = normalizeName(name);
+        const exact = knownPeople.find((person) => normalizeName(person.name) === normalized);
+        if (exact) return exact.name;
+        if (!normalized.includes(" ")) {
+          const matches = knownPeople.filter((person) => normalizeName(person.name).split(" ")[0] === normalized);
+          if (matches.length === 1) return matches[0].name;
+        }
+        return name;
+      };
+      extractedEntities = extractedEntities.map((entity) => ({
+        ...entity,
+        name: resolveKnownPerson(entity.name, entity.type),
+      }));
+      const canonical = (name: string) => extractedEntities.find((e) => e.name.toLowerCase() === name.toLowerCase())?.name
+        || knownEntities.find((e) => e.name.toLowerCase() === name.toLowerCase())?.name
+        || (() => {
+          const normalized = normalizeName(name);
+          if (!normalized.includes(" ")) {
+            const matches = knownPeople.filter((person) => normalizeName(person.name).split(" ")[0] === normalized);
+            if (matches.length === 1) return matches[0].name;
+          }
+          return undefined;
+        })();
       extractedRelations = (Array.isArray(parsed.relationships) ? parsed.relationships : [])
         .filter((r) => typeof r.from === "string" && typeof r.to === "string" && typeof r.relation === "string" && canonical(r.from as string) && canonical(r.to as string))
         .map((r) => ({ from: canonical(r.from as string)!, to: canonical(r.to as string)!, relation: (r.relation as string).toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 40) || "RELATED_TO" }))
