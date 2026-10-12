@@ -73,7 +73,16 @@ All notable project changes are recorded here.
 - Changed memory, entity, mention, and relationship writes to return confirmation rows before reporting success.
 - Added tests for relationship retrieval, missing information, ambiguous names, malformed/unknown tools, and user-scope parameters.
 
+### Stage 1 — Audit and stabilize the integrated stack
+
+- Audited the current `main` baseline after the full-stack integration was merged by PR #10.
+- Fixed a confirmed graph-isolation gap: graph evidence and `search_memories` now scope mentioned entities to the requesting user, retaining unowned legacy entities only in the `default` compatibility scope.
+- Added regression assertions for entity ownership in graph evidence and tool-search queries.
+- Validation passed: 24 tests, lint, production build, and `git diff --check`.
+- Live Gemini/FalkorDB smoke tests remain blocked because credentials are not configured in this environment.
+
 ### Planned next
 
-- Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
-- Milestone 7: graph search, filtering, details, and path highlighting.
+- Configure valid Gemini and FalkorDB credentials in the target runtime and run non-destructive live smoke tests.
+- Address the request-level identity limitation with a real authentication provider before production multi-user use.
+- Review the five high-severity npm audit findings without applying the major-version downgrade suggested by `npm audit fix`.

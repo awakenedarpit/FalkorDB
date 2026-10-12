@@ -87,6 +87,8 @@ test("retrieves bounded graph evidence for one user and groups duplicate memory 
     { memoryId: "memory-2", content: "I build Graph Memory", createdAt: 200, entities: ["Arpit", "Graph Memory"], relationships: ["Arpit BUILDS Graph Memory"] },
   ]);
   assert.match(graph.calls[0].cypher, /MATCH \(m:Memory \{userId: \$userId\}\)/);
+  assert.match(graph.calls[0].cypher, /e\.ownerUserId = \$userId/);
+  assert.match(graph.calls[0].cypher, /e\.ownerUserId IS NULL AND \$userId = 'default'/);
   assert.match(graph.calls[0].cypher, /OPTIONAL MATCH \(e\)-\[r\]-\(related:Entity\)/);
   assert.deepEqual(graph.calls[0].params, { userId: "user-1", limit: 2 });
 });

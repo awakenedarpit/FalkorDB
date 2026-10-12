@@ -24,7 +24,7 @@ npm test
 npm run dev
 ```
 
-The repository currently has no automated test script. Add focused regression tests when changing graph identity, persistence, retrieval, correction, or user scoping.
+The repository has a Node.js test script. Add focused regression tests when changing graph identity, persistence, retrieval, correction, or user scoping.
 
 ## Architecture
 
@@ -51,13 +51,10 @@ Each completed milestone gets a dedicated branch, focused commit(s), documentati
 
 ## Current verified baseline (2026-10-12)
 
-- `npm ci`: passed.
-- `npm run lint`: passed with one warning for unused `persistMemoryToGraph`.
-- `npm run build`: passed after graph node coordinates `x`/`y` were declared as optional runtime properties.
-- Gemini/FalkorDB smoke tests were not run because required environment variables were unset.
-- Local page smoke tests: `/` and `/graph` returned HTTP 200; missing integration configuration returned safe HTTP 500 JSON errors.
-- `npm test`: passed six identity and duplicate-prevention regression tests.
-- `npm test` now covers 12 identity, persistence, provenance, and duplicate-prevention regression tests.
-- No tracked secret-like files were found.
+- `main` includes the full feature stack through merged PR #10; Stage 1 audit fixes are on `feature/multimodal-agent`.
+- `npm ci`, `npm test` (24 passed), `npm run lint`, and `npm run build` passed on the Stage 1 branch.
+- `git diff --check` passed; the tracked-file scan found no committed secrets or environment files (only `.env.example`).
+- Live Gemini/FalkorDB checks could not be run because the required environment variables are absent from this environment.
+- `npm audit` reports five high-severity findings in the lint dependency tree; the suggested automatic fix downgrades `eslint-config-next` across a major version and was not applied.
 
 See `MEMORY.md`, `TRD.md`, and `CHANGELOG.md` for the maintained project record.
