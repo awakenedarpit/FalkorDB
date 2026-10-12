@@ -20,6 +20,8 @@ Success includes `{ reply, memoriesUsed, graphEvidenceUsed, contextTurnsUsed, co
 
 The client sends at most eight recent turns and retains the returned `memoryId` on user turns. Pronouns and implicit references use the immediately preceding user turn only when it is the single clear candidate; otherwise the agent asks for clarification.
 
+The answer step exposes only two server-defined read tools: `search_memories` and `find_entity_relationships`. Tool arguments are validated before execution, every query receives the normalized server-side user scope, and a request may execute at most four tool calls. Tool results are returned to Gemini as evidence; empty or ambiguous results do not become facts. Graph writes return confirmation rows before the API reports them as saved.
+
 ### `GET /api/graph`
 
 Optional query: `userId`. Returns `{ nodes: [{ id, label, type }], links: [{ source, target, label }] }`. The caller-provided user ID is not an authentication boundary and must not remain so in a production security design.
@@ -74,6 +76,6 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 ## Testing strategy
 
 - Static: lint, TypeScript, production build.
-- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, bounded graph evidence grouping, soft correction/forgetting, allow-list validation, and safe missing-config errors. Run with `npm test`.
+- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, bounded graph evidence grouping, graph tool retrieval, missing/ambiguous results, user-data isolation, confirmed writes, soft correction/forgetting, allow-list validation, and safe missing-config errors. Run with `npm test`.
 - Integration: persistence helpers are tested against a controlled in-memory graph-query mock; live chat persistence and graph retrieval still require a configured FalkorDB instance. Correction, forgetting, and authenticated user isolation remain later milestones.
 - UI smoke: responsive chat send/error/loading and graph loading/empty/error/node-detail flows.

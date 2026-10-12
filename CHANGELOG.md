@@ -65,6 +65,14 @@ All notable project changes are recorded here.
 - Ambiguous references now require clarification instead of an inferred graph target.
 - Added regression tests for context limits, memory ID preservation, pronoun detection, and no-referent safety.
 
+### Graph-aware memory retrieval — first tool-using milestone
+
+- Added fixed, read-only `search_memories` and `find_entity_relationships` tools over the existing FalkorDB schema.
+- Added strict tool-name and argument validation, normalized user scoping, and a maximum of four tool executions per chat request.
+- Returned graph tool evidence to Gemini before answer generation, including explicit empty and ambiguous outcomes.
+- Changed memory, entity, mention, and relationship writes to return confirmation rows before reporting success.
+- Added tests for relationship retrieval, missing information, ambiguous names, malformed/unknown tools, and user-scope parameters.
+
 ### Planned next
 
 - Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
