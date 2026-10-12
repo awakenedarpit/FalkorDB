@@ -4,6 +4,7 @@ import { FalkorDB } from "falkordb";
 import { randomUUID } from "node:crypto";
 import { dedupeExtractedEntities, dedupeRelationships, resolveEntityIdentity } from "@/lib/identity";
 import type { EntityType, KnownEntity } from "@/lib/identity";
+import { buildConversationContext, sanitizeConversation } from "@/lib/conversation";
 import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readGraphEvidence, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
 
 const allowedTypes = new Set<EntityType>(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
@@ -37,6 +38,9 @@ export async function POST(request: Request) {
     const body = await request.json();
     if (typeof body.message !== "string" || !body.message.trim()) return NextResponse.json({ error: "Please enter a message." }, { status: 400 });
     const message = body.message.trim();
+    const conversation = sanitizeConversation(body.conversation);
+    const conversationContext = buildConversationContext(message, conversation);
+    const previousUserTurn = [...conversation].reverse().find((turn) => turn.role === "user");
     const userId = normalizeUserId(body.userId);
     const memoryId = randomUUID();
     const capturedAt = Date.now();
@@ -71,6 +75,7 @@ export async function POST(request: Request) {
           'Schema: {"entities":[{"name":"string","type":"Person|Project|Team|Skill|Organization|Preference|Place|Other","aliases":["string"]}],"relationships":[{"from":"entity name","relation":"UPPER_SNAKE_CASE","to":"entity name"}]}.',
           "Create separate Person entities for every named person, including introduced teammates. Include only explicit or strongly implied facts. Never invent details. Add aliases only when the message explicitly identifies a nickname or short form for the same entity.",
           "Identity rules: reuse a known entity only for an exact name, declared alias, or a unique short Person name. If multiple known people match a short name, do not guess and do not attach relationships or personal facts to that ambiguous name.",
+          "Conversational context:", conversationContext,
           "Known entities already in the graph:", knownEntityContext, "Message:", message,
         ].join("\n"),
       });
@@ -135,11 +140,11 @@ export async function POST(request: Request) {
       const facts = [item.entities.length ? `entities: ${item.entities.join(", ")}` : "", item.relationships.length ? `relationships: ${item.relationships.join("; ")}` : ""].filter(Boolean).join(" | ");
       return `${index + 1}. ${item.content}${facts ? ` [${facts}]` : ""}`;
     });
-    const prompt = ["You are a helpful Graph Memory Agent.", "Use only the bounded graph evidence and current conversation when making memory claims.", "Do not claim to remember information that is not present in the evidence or current conversation.", "If the user asks what you remember, summarize relevant evidence and be clear when the graph does not contain an answer.", "", "Bounded graph evidence (oldest first):", evidenceLines.length ? evidenceLines.join("\n") : "No connected graph evidence was found.", "", "Recent raw memories (fallback context only):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", "Current user message:", message].join("\n");
+    const prompt = ["You are a helpful Graph Memory Agent.", "Use only the bounded graph evidence and current conversation when making memory claims.", "Do not claim to remember information that is not present in the evidence or current conversation.", "If the user asks what you remember, summarize relevant evidence and be clear when the graph does not contain an answer.", "When a pronoun or implicit reference is ambiguous, ask a concise clarification question rather than guessing.", "", "Bounded graph evidence (oldest first):", evidenceLines.length ? evidenceLines.join("\n") : "No connected graph evidence was found.", "", "Recent raw memories (fallback context only):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", conversationContext, "", "Current user message:", message].join("\n");
     let result;
     try { result = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt }); }
     catch (error) { console.error("Primary Gemini model failed:", error); result = await ai.models.generateContent({ model: "gemini-flash-lite-latest", contents: prompt }); }
-    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
+    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, contextTurnsUsed: conversation.length, contextMemoryId: previousUserTurn?.memoryId || null, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
   } catch (error) {
     console.error("Graph Memory chat failed:", error);
     return NextResponse.json({ error: "The chat request failed. Check the VS Code terminal for details." }, { status: 500 });

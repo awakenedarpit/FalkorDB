@@ -57,6 +57,15 @@ All notable project changes are recorded here.
 - Forgetting uses reversible soft deletion and hides source relationships from retrieval and graph exploration without deleting graph data.
 - Forgetting requires `confirmed: true` and rejects missing, stale, or cross-user memory IDs.
 
+### Milestone 6 — Conversational context
+
+- Added bounded conversation-turn sanitization for recent user and assistant messages.
+- Retained returned memory IDs on client user turns so follow-ups can identify the exact prior memory candidate.
+- Added explicit pronoun and implicit-reference guidance to extraction and response prompts.
+- Ambiguous references now require clarification instead of an inferred graph target.
+- Added regression tests for context limits, memory ID preservation, pronoun detection, and no-referent safety.
+
 ### Planned next
 
 - Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
+- Milestone 7: graph search, filtering, details, and path highlighting.

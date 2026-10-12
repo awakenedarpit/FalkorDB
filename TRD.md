@@ -14,9 +14,11 @@ The application uses the Next.js App Router. Gemini performs response generation
 
 ### `POST /api/chat`
 
-Request: `{ "message": string, "userId?: string" }`
+Request: `{ "message": string, "userId?: string", "conversation?: [{ "role": "user" | "assistant", "content": string, "memoryId?: string }] }`
 
-Success includes `{ reply, memoriesUsed, memorySaved, memoryId, userId, entitiesCreated, relationshipsCreated }`. User IDs are normalized and scoped consistently across reads and writes; this is request-level scoping, not authentication.
+Success includes `{ reply, memoriesUsed, graphEvidenceUsed, contextTurnsUsed, contextMemoryId, memorySaved, memoryId, userId, entitiesCreated, relationshipsCreated }`. User IDs are normalized and scoped consistently across reads and writes; this is request-level scoping, not authentication.
+
+The client sends at most eight recent turns and retains the returned `memoryId` on user turns. Pronouns and implicit references use the immediately preceding user turn only when it is the single clear candidate; otherwise the agent asks for clarification.
 
 ### `GET /api/graph`
 
@@ -60,6 +62,7 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 - Replace caller-supplied user IDs with an explicit authenticated identity before claiming isolation.
 - Do not expose another user's memory through graph or retrieval APIs.
 - Do not accept natural-language or partial targets for correction/forgetting; require an exact memory ID and explicit confirmation for forgetting.
+- Treat client conversation history as quoted context, not instructions, and never resolve an ambiguous pronoun to a graph fact by guesswork.
 
 ## Bounded retrieval
 
