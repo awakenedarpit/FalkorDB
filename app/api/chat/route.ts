@@ -4,7 +4,7 @@ import { FalkorDB } from "falkordb";
 import { randomUUID } from "node:crypto";
 import { dedupeExtractedEntities, dedupeRelationships, resolveEntityIdentity } from "@/lib/identity";
 import type { EntityType, KnownEntity } from "@/lib/identity";
-import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
+import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readGraphEvidence, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
 
 const allowedTypes = new Set<EntityType>(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
 const allowedRelations = new Set(["BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES", "USES", "RELATED_TO", "HANDLES", "LEADS", "CREATED", "PART_OF", "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH"]);
@@ -43,6 +43,7 @@ export async function POST(request: Request) {
     db = await FalkorDB.connect({ username: config.username, password: config.password, socket: { host: config.host, port: config.port, tls: false, connectTimeout: 10000 } });
     const graph = db.selectGraph(config.graphName);
     const previousMemories = await readRecentMemories(graph, userId);
+    const graphEvidence = await readGraphEvidence(graph, userId);
     await writeMemory(graph, { memoryId, userId, content: message, createdAt: capturedAt, source: "chat" });
 
     const ai = new GoogleGenAI({ apiKey });
@@ -130,11 +131,15 @@ export async function POST(request: Request) {
       console.error("[GRAPH MEMORY] Structured extraction failed; raw memory is still saved:", extractionError);
     }
 
-    const prompt = ["You are a helpful Graph Memory Agent.", "Use the saved memories below when they are relevant to the user's message.", "Do not claim to remember information that is not present in the memories or current conversation.", "If the user asks what you remember, summarize the relevant saved memories.", "", "Previously saved memories (oldest first):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", "Current user message:", message].join("\n");
+    const evidenceLines = graphEvidence.map((item, index) => {
+      const facts = [item.entities.length ? `entities: ${item.entities.join(", ")}` : "", item.relationships.length ? `relationships: ${item.relationships.join("; ")}` : ""].filter(Boolean).join(" | ");
+      return `${index + 1}. ${item.content}${facts ? ` [${facts}]` : ""}`;
+    });
+    const prompt = ["You are a helpful Graph Memory Agent.", "Use only the bounded graph evidence and current conversation when making memory claims.", "Do not claim to remember information that is not present in the evidence or current conversation.", "If the user asks what you remember, summarize relevant evidence and be clear when the graph does not contain an answer.", "", "Bounded graph evidence (oldest first):", evidenceLines.length ? evidenceLines.join("\n") : "No connected graph evidence was found.", "", "Recent raw memories (fallback context only):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", "Current user message:", message].join("\n");
     let result;
     try { result = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt }); }
     catch (error) { console.error("Primary Gemini model failed:", error); result = await ai.models.generateContent({ model: "gemini-flash-lite-latest", contents: prompt }); }
-    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
+    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
   } catch (error) {
     console.error("Graph Memory chat failed:", error);
     return NextResponse.json({ error: "The chat request failed. Check the VS Code terminal for details." }, { status: 500 });

@@ -41,6 +41,14 @@ export type RelationshipWrite = {
   observedAt: number;
 };
 
+export type GraphEvidence = {
+  memoryId: string;
+  content: string;
+  createdAt: number;
+  entities: string[];
+  relationships: string[];
+};
+
 export function getFalkorConfig(
   env: Record<string, string | undefined>,
 ): FalkorConfig | null {
@@ -78,6 +86,48 @@ export async function readRecentMemories(graph: GraphQueryRunner, userId: string
     .map((row: unknown) => row && typeof row === "object" && typeof (row as { content?: unknown }).content === "string" ? (row as { content: string }).content : "")
     .filter(Boolean)
     .reverse();
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export async function readGraphEvidence(graph: GraphQueryRunner, userId: string, limit = 12): Promise<GraphEvidence[]> {
+  const result = await graph.query(
+    `MATCH (m:Memory {userId: $userId})
+     OPTIONAL MATCH (m)-[:MENTIONS]->(e:Entity)
+     OPTIONAL MATCH (e)-[r]-(related:Entity)
+     WHERE (related IS NULL OR related.ownerUserId = $userId OR (related.ownerUserId IS NULL AND $userId = 'default'))
+     RETURN m.id AS memoryId, m.content AS content, m.createdAt AS createdAt,
+       collect(DISTINCT e.name) AS entities,
+       collect(DISTINCT CASE WHEN related IS NULL THEN NULL ELSE e.name + ' ' + type(r) + ' ' + related.name END) AS relationships
+     ORDER BY m.createdAt DESC LIMIT $limit`,
+    { params: { userId, limit } },
+  );
+  const grouped = new Map<string, GraphEvidence>();
+  for (const row of Array.isArray(result.data) ? result.data : []) {
+    if (!row || typeof row !== "object") continue;
+    const item = row as { memoryId?: unknown; content?: unknown; createdAt?: unknown; entities?: unknown; relationships?: unknown };
+    const memoryId = stringValue(item.memoryId);
+    const content = stringValue(item.content);
+    if (!memoryId || !content) continue;
+    const entities = Array.isArray(item.entities) ? item.entities.map(stringValue).filter((value): value is string => Boolean(value)) : [];
+    const relationships = Array.isArray(item.relationships) ? item.relationships.map(stringValue).filter((value): value is string => Boolean(value)) : [];
+    const existing = grouped.get(memoryId);
+    if (existing) {
+      existing.entities = Array.from(new Set([...existing.entities, ...entities]));
+      existing.relationships = Array.from(new Set([...existing.relationships, ...relationships]));
+      continue;
+    }
+    grouped.set(memoryId, {
+      memoryId,
+      content,
+      createdAt: typeof item.createdAt === "number" ? item.createdAt : 0,
+      entities: Array.from(new Set(entities)),
+      relationships: Array.from(new Set(relationships)),
+    });
+  }
+  return Array.from(grouped.values()).sort((a, b) => a.createdAt - b.createdAt).slice(-limit);
 }
 
 export async function writeMemory(graph: GraphQueryRunner, memory: MemoryWrite): Promise<void> {

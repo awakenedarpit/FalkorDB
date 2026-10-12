@@ -4,6 +4,7 @@ import {
   getFalkorConfig,
   linkMemoryToEntity,
   normalizeUserId,
+  readGraphEvidence,
   readRecentMemories,
   scopeEntityKey,
   writeEntity,
@@ -70,4 +71,20 @@ test("reads only the requested user's recent memories through parameters", async
   const result = await readRecentMemories(graph, "user-1", 10);
   assert.deepEqual(result, ["newer", "older"]);
   assert.deepEqual(graph.calls[0].params, { userId: "user-1", limit: 10 });
+});
+
+test("retrieves bounded graph evidence for one user and groups duplicate memory rows", async () => {
+  const graph = createMockGraph([
+    { memoryId: "memory-2", content: "I build Graph Memory", createdAt: 200, entities: ["Arpit", "Graph Memory"], relationships: ["Arpit BUILDS Graph Memory"] },
+    { memoryId: "memory-1", content: "My name is Arpit", createdAt: 100, entities: ["Arpit"], relationships: [null] },
+    { memoryId: "memory-2", content: "I build Graph Memory", createdAt: 200, entities: ["Graph Memory"], relationships: ["Arpit BUILDS Graph Memory"] },
+  ]);
+  const result = await readGraphEvidence(graph, "user-1", 2);
+  assert.deepEqual(result, [
+    { memoryId: "memory-1", content: "My name is Arpit", createdAt: 100, entities: ["Arpit"], relationships: [] },
+    { memoryId: "memory-2", content: "I build Graph Memory", createdAt: 200, entities: ["Arpit", "Graph Memory"], relationships: ["Arpit BUILDS Graph Memory"] },
+  ]);
+  assert.match(graph.calls[0].cypher, /MATCH \(m:Memory \{userId: \$userId\}\)/);
+  assert.match(graph.calls[0].cypher, /OPTIONAL MATCH \(e\)-\[r\]-\(related:Entity\)/);
+  assert.deepEqual(graph.calls[0].params, { userId: "user-1", limit: 2 });
 });

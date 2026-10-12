@@ -43,6 +43,13 @@ All notable project changes are recorded here.
 - Added controlled graph-query integration tests for configuration, scoping, memory writes, entity ownership, provenance links, typed relationships, and retrieval parameters.
 - Validation passed: 12 tests, lint, and production build.
 
+### Milestone 4 — Graph-powered retrieval
+
+- Added bounded, user-scoped graph evidence retrieval from recent memories through `MENTIONS` and one entity-relationship hop.
+- Grouped duplicate graph rows per memory and included connected entity and relationship facts in the chat prompt.
+- Preserved the existing chat response fields and added `graphEvidenceUsed` for observability.
+- Added regression coverage for query scoping, bounded limits, duplicate grouping, ordering, and relationship evidence.
+
 ### Planned next
 
-- Milestone 2: robust identity resolution, aliases, and duplicate prevention.
+- Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
