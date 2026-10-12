@@ -72,7 +72,7 @@ export default function GraphPage() {
 
   useEffect(() => {
     if (!loading && data.nodes.length) {
-      const timer = window.setTimeout(() => graphRef.current?.zoomToFit?.(500, 70), 700);
+      const timer = window.setTimeout(() => graphRef.current?.zoomToFit?.(700, 140), 700);
       return () => window.clearTimeout(timer);
     }
   }, [loading, data]);
@@ -103,12 +103,12 @@ export default function GraphPage() {
           nodeId="id"
           nodeLabel={(node: GraphNode) => `${node.type}: ${node.label}`}
           nodeColor={(node: GraphNode) => node.type === 'User' ? '#38bdf8' : node.type === 'MemoryTest' ? '#e879f9' : '#f59e0b'}
-          nodeRelSize={7}
+          nodeRelSize={4.5}
           nodeCanvasObjectMode={() => 'after'}
           nodeCanvasObject={(node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-            if (globalScale < 1.2) return;
-            const label = node.label.length > 32 ? node.label.slice(0, 29) + '...' : node.label;
-            const fontSize = Math.max(3, 11 / globalScale);
+            if (globalScale < 1.8) return;
+            const label = node.label.length > 26 ? node.label.slice(0, 23) + '...' : node.label;
+            const fontSize = Math.max(2.5, Math.min(8, 10 / globalScale));
             ctx.font = `${fontSize}px Sans-Serif`;
             ctx.textAlign = 'center';
             ctx.textBaseline = 'top';
@@ -116,26 +116,12 @@ export default function GraphPage() {
             ctx.fillText(label, node.x || 0, (node.y || 0) + 9 / globalScale);
           }}
           linkColor={() => 'rgba(125, 211, 252, 0.95)'}
-          linkWidth={() => 2.5}
+          linkWidth={() => 1.6}
           linkVisibility={() => true}
-          linkDirectionalArrowLength={6}
+          linkDirectionalArrowLength={4}
           linkDirectionalArrowRelPos={1}
           linkDirectionalArrowColor={() => '#f8fafc'}
           linkCurvature={0.08}
-          linkCanvasObjectMode={() => 'after'}
-          linkCanvasObject={(link: GraphLink, ctx: CanvasRenderingContext2D, globalScale: number) => {
-            const source = link.source as GraphNode;
-            const target = link.target as GraphNode;
-            if (!source || !target || typeof source !== 'object' || typeof target !== 'object') return;
-            const sx = source.x || 0, sy = source.y || 0, tx = target.x || 0, ty = target.y || 0;
-            const midX = (sx + tx) / 2, midY = (sy + ty) / 2;
-            const fontSize = Math.max(3, 10 / globalScale);
-            ctx.font = `${fontSize}px Sans-Serif`;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            ctx.fillStyle = '#cbd5e1';
-            ctx.fillText(link.label || 'HAS_MEMORY', midX, midY);
-          }}
           onNodeClick={(node: GraphNode) => setSelectedNode(node)}
           cooldownTicks={100}
           enableNodeDrag
