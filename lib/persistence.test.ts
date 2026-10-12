@@ -43,8 +43,8 @@ test("normalizes user scope and rejects unsafe or empty values", () => {
 });
 
 test("writes a traceable memory with owner, source, timestamp, and user edge", async () => {
-  const graph = createMockGraph();
-  await writeMemory(graph, { memoryId: "memory-1", userId: "user-1", content: "A fact", createdAt: 123, source: "chat" });
+  const graph = createMockGraph([{ memoryId: "memory-1" }]);
+  assert.equal(await writeMemory(graph, { memoryId: "memory-1", userId: "user-1", content: "A fact", createdAt: 123, source: "chat" }), true);
   assert.match(graph.calls[0].cypher, /MERGE \(u:User/);
   assert.match(graph.calls[0].cypher, /CREATE \(m:Memory/);
   assert.match(graph.calls[0].cypher, /HAS_MEMORY/);
@@ -52,17 +52,17 @@ test("writes a traceable memory with owner, source, timestamp, and user edge", a
 });
 
 test("writes entity ownership and idempotent provenance links", async () => {
-  const graph = createMockGraph();
-  await writeEntity(graph, { key: "person_arpit_raj", name: "Arpit Raj", type: "Person", aliases: ["Arpit"], userId: "user-1", updatedAt: 123 });
-  await linkMemoryToEntity(graph, "memory-1", "person_arpit_raj", "user-1", 123);
+  const graph = createMockGraph([{ key: "person_arpit_raj" }, { memoryId: "memory-1" }]);
+  assert.equal(await writeEntity(graph, { key: "person_arpit_raj", name: "Arpit Raj", type: "Person", aliases: ["Arpit"], userId: "user-1", updatedAt: 123 }), true);
+  assert.equal(await linkMemoryToEntity(graph, "memory-1", "person_arpit_raj", "user-1", 123), true);
   assert.match(graph.calls[0].cypher, /ownerUserId/);
   assert.match(graph.calls[1].cypher, /MENTIONS/);
   assert.match(graph.calls[1].cypher, /sourceMemoryId/);
 });
 
 test("writes a typed relationship with provenance and user scope", async () => {
-  const graph = createMockGraph();
-  await writeRelationship(graph, { fromKey: "person_arpit_raj", toKey: "project_graph_memory", relation: "BUILDS", memoryId: "memory-1", userId: "user-1", observedAt: 123 });
+  const graph = createMockGraph([{ fromKey: "person_arpit_raj", toKey: "project_graph_memory" }]);
+  assert.equal(await writeRelationship(graph, { fromKey: "person_arpit_raj", toKey: "project_graph_memory", relation: "BUILDS", memoryId: "memory-1", userId: "user-1", observedAt: 123 }), true);
   assert.match(graph.calls[0].cypher, /MATCH \(a:Entity/);
   assert.match(graph.calls[0].cypher, /MERGE \(a\)-\[r:BUILDS\]->\(b\)/);
   assert.match(graph.calls[0].cypher, /sourceUserId/);

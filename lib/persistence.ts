@@ -167,37 +167,45 @@ export async function forgetMemory(graph: GraphQueryRunner, memoryId: string, us
   return Array.isArray(result.data) && result.data.length > 0;
 }
 
-export async function writeMemory(graph: GraphQueryRunner, memory: MemoryWrite): Promise<void> {
-  await graph.query(
+export async function writeMemory(graph: GraphQueryRunner, memory: MemoryWrite): Promise<boolean> {
+  const result = await graph.query(
     `MERGE (u:User {id: $userId})
      CREATE (m:Memory {id: $memoryId, userId: $userId, content: $content, source: $source, createdAt: $createdAt, updatedAt: $createdAt})
-     MERGE (u)-[:HAS_MEMORY]->(m)`,
+     MERGE (u)-[:HAS_MEMORY]->(m)
+     RETURN m.id AS memoryId`,
     { params: memory },
   );
+  return Array.isArray(result.data) && result.data.length > 0;
 }
 
-export async function writeEntity(graph: GraphQueryRunner, entity: EntityWrite): Promise<void> {
-  await graph.query(
+export async function writeEntity(graph: GraphQueryRunner, entity: EntityWrite): Promise<boolean> {
+  const result = await graph.query(
     `MERGE (e:Entity {key: $key})
-     SET e.name = $name, e.type = $type, e.aliases = $aliases, e.ownerUserId = $userId, e.updatedAt = $updatedAt`,
+     SET e.name = $name, e.type = $type, e.aliases = $aliases, e.ownerUserId = $userId, e.updatedAt = $updatedAt
+     RETURN e.key AS key`,
     { params: entity },
   );
+  return Array.isArray(result.data) && result.data.length > 0;
 }
 
-export async function linkMemoryToEntity(graph: GraphQueryRunner, memoryId: string, entityKey: string, userId: string, observedAt: number): Promise<void> {
-  await graph.query(
+export async function linkMemoryToEntity(graph: GraphQueryRunner, memoryId: string, entityKey: string, userId: string, observedAt: number): Promise<boolean> {
+  const result = await graph.query(
     `MATCH (m:Memory {id: $memoryId, userId: $userId}), (e:Entity {key: $entityKey, ownerUserId: $userId})
      MERGE (m)-[r:MENTIONS]->(e)
-     SET r.observedAt = $observedAt, r.sourceMemoryId = $memoryId, r.sourceUserId = $userId`,
+     SET r.observedAt = $observedAt, r.sourceMemoryId = $memoryId, r.sourceUserId = $userId
+     RETURN m.id AS memoryId`,
     { params: { memoryId, entityKey, userId, observedAt } },
   );
+  return Array.isArray(result.data) && result.data.length > 0;
 }
 
-export async function writeRelationship(graph: GraphQueryRunner, relationship: RelationshipWrite): Promise<void> {
-  await graph.query(
+export async function writeRelationship(graph: GraphQueryRunner, relationship: RelationshipWrite): Promise<boolean> {
+  const result = await graph.query(
     `MATCH (a:Entity {key: $fromKey, ownerUserId: $userId}), (b:Entity {key: $toKey, ownerUserId: $userId})
      MERGE (a)-[r:${relationship.relation}]->(b)
-     SET r.updatedAt = $observedAt, r.sourceMemoryId = $memoryId, r.sourceUserId = $userId`,
+     SET r.updatedAt = $observedAt, r.sourceMemoryId = $memoryId, r.sourceUserId = $userId
+     RETURN a.key AS fromKey, b.key AS toKey`,
     { params: relationship },
   );
+  return Array.isArray(result.data) && result.data.length > 0;
 }

@@ -25,6 +25,8 @@ _Last verified: 2026-10-12_
 - Chat retrieval now queries bounded one-hop graph evidence for the requested user, groups duplicate memory rows, and includes connected entities and relationships in the Gemini prompt.
 - Memory correction and forgetting now use exact IDs, preserve correction revisions, and soft-delete forgotten memories and source relationships without destructive Cypher deletes.
 - Chat now accepts bounded recent conversation turns, preserves returned memory IDs on client user messages, and gives pronoun resolution an explicit immediately-previous-turn candidate with clarification fallback.
+- Chat now exposes only `search_memories` and `find_entity_relationships` through a maximum-four-call Gemini loop; tool queries are user-scoped and their evidence is returned to answer generation.
+- Graph writes now return confirmation rows, and chat reports only confirmed memory/entity/relationship persistence counts.
 
 ## Baseline findings
 
@@ -44,6 +46,7 @@ _Last verified: 2026-10-12_
 4. Retrieval is bounded to recent user-scoped memory nodes and one-hop entity relationships; semantic ranking and multi-hop traversal remain future improvements.
 5. The correction/forgetting endpoint still uses request-level user IDs rather than authenticated identities.
 6. Conversational context is client-supplied and bounded; it is context for interpretation, not an authentication or authorization boundary.
+7. The current user scope is normalized request-level identity rather than a real authentication session; production deployment still needs an authenticated identity provider.
 5. Existing legacy name-only entity keys remain in the graph; new writes use type-scoped keys, but a future migration may be needed to reconcile historical collisions safely.
 6. Legacy unowned entities are visible only to the `default` compatibility scope; no automatic migration has assigned ownership.
 7. The diagnostic memory-test route is repeatable but remains a diagnostic endpoint rather than a production health-check boundary.

@@ -1,11 +1,14 @@
 import { NextResponse } from "next/server";
-import { GoogleGenAI } from "@google/genai";
+import { createPartFromFunctionResponse, FunctionCallingConfigMode, GoogleGenAI } from "@google/genai";
+import type { Content, FunctionCall } from "@google/genai";
 import { FalkorDB } from "falkordb";
 import { randomUUID } from "node:crypto";
 import { dedupeExtractedEntities, dedupeRelationships, resolveEntityIdentity } from "@/lib/identity";
 import type { EntityType, KnownEntity } from "@/lib/identity";
 import { buildConversationContext, sanitizeConversation } from "@/lib/conversation";
+import { executeGraphTool, graphToolDeclarations, MAX_TOOL_EXECUTIONS } from "@/lib/agent-tools";
 import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readGraphEvidence, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
+import type { GraphQueryRunner } from "@/lib/persistence";
 
 const allowedTypes = new Set<EntityType>(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
 const allowedRelations = new Set(["BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES", "USES", "RELATED_TO", "HANDLES", "LEADS", "CREATED", "PART_OF", "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH"]);
@@ -28,6 +31,37 @@ function referenceFor(map: Map<string, EntityReference[]>, name: string): Entity
   return matches.length === 1 ? matches[0] : undefined;
 }
 
+async function generateGroundedAnswer(
+  ai: GoogleGenAI,
+  graph: GraphQueryRunner,
+  userId: string,
+  prompt: string,
+) {
+  const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
+  let toolExecutions = 0;
+  const toolConfig = {
+    tools: [{ functionDeclarations: graphToolDeclarations }],
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO, allowedFunctionNames: graphToolDeclarations.map((tool) => tool.name).filter((name): name is string => Boolean(name)) } },
+  };
+  let response = await ai.models.generateContent({ model: "gemini-3.5-flash", contents, config: toolConfig });
+
+  while (response.functionCalls?.length && toolExecutions < MAX_TOOL_EXECUTIONS) {
+    const modelContent = response.candidates?.[0]?.content;
+    if (modelContent) contents.push(modelContent);
+    const functionResponses = [];
+    for (const call of response.functionCalls as FunctionCall[]) {
+      if (toolExecutions >= MAX_TOOL_EXECUTIONS) break;
+      toolExecutions += 1;
+      const output = await executeGraphTool(graph, userId, call.name, call.args);
+      functionResponses.push(createPartFromFunctionResponse(call.id || `tool-${toolExecutions}`, call.name || "unknown", output));
+    }
+    if (!functionResponses.length) break;
+    contents.push({ role: "user", parts: functionResponses });
+    response = await ai.models.generateContent({ model: "gemini-3.5-flash", contents, config: toolExecutions < MAX_TOOL_EXECUTIONS ? toolConfig : undefined });
+  }
+  return { text: response.text || "I couldn't generate a response from the available graph evidence.", toolExecutions };
+}
+
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
   const config = getFalkorConfig(process.env);
@@ -48,11 +82,14 @@ export async function POST(request: Request) {
     const graph = db.selectGraph(config.graphName);
     const previousMemories = await readRecentMemories(graph, userId);
     const graphEvidence = await readGraphEvidence(graph, userId);
-    await writeMemory(graph, { memoryId, userId, content: message, createdAt: capturedAt, source: "chat" });
+    const memorySaved = await writeMemory(graph, { memoryId, userId, content: message, createdAt: capturedAt, source: "chat" });
+    if (!memorySaved) return NextResponse.json({ error: "The memory could not be confirmed as saved." }, { status: 502 });
 
     const ai = new GoogleGenAI({ apiKey });
     let processedEntities: EntityReference[] = [];
     let processedRelations: Array<{ from: string; relation: string; to: string }> = [];
+    let persistedEntityCount = 0;
+    let persistedRelationshipCount = 0;
     try {
       const knownResult = await graph.query(
         "MATCH (e:Entity) WHERE e.ownerUserId = $userId OR (e.ownerUserId IS NULL AND $userId = 'default') RETURN e.key AS key, e.name AS name, e.type AS type, e.aliases AS aliases LIMIT 500",
@@ -128,10 +165,13 @@ export async function POST(request: Request) {
         });
         const known = knownEntities.find((candidate) => candidate.key === entity.key);
         const aliases = Array.from(new Set([...(known?.aliases || []), ...(input?.aliases || [])].filter((alias) => alias.toLocaleLowerCase() !== entity.name.toLocaleLowerCase())));
-        await writeEntity(graph, { key: entity.key, name: entity.name, type: entity.type, aliases, userId, updatedAt: capturedAt });
-        await linkMemoryToEntity(graph, memoryId, entity.key, userId, capturedAt);
+        const entityWritten = await writeEntity(graph, { key: entity.key, name: entity.name, type: entity.type, aliases, userId, updatedAt: capturedAt });
+        const mentionWritten = await linkMemoryToEntity(graph, memoryId, entity.key, userId, capturedAt);
+        if (entityWritten && mentionWritten) persistedEntityCount += 1;
       }
-      for (const relation of processedRelations) await writeRelationship(graph, { fromKey: relation.from, toKey: relation.to, relation: relation.relation, memoryId, userId, observedAt: capturedAt });
+      for (const relation of processedRelations) {
+        if (await writeRelationship(graph, { fromKey: relation.from, toKey: relation.to, relation: relation.relation, memoryId, userId, observedAt: capturedAt })) persistedRelationshipCount += 1;
+      }
     } catch (extractionError) {
       console.error("[GRAPH MEMORY] Structured extraction failed; raw memory is still saved:", extractionError);
     }
@@ -141,10 +181,10 @@ export async function POST(request: Request) {
       return `${index + 1}. ${item.content}${facts ? ` [${facts}]` : ""}`;
     });
     const prompt = ["You are a helpful Graph Memory Agent.", "Use only the bounded graph evidence and current conversation when making memory claims.", "Do not claim to remember information that is not present in the evidence or current conversation.", "If the user asks what you remember, summarize relevant evidence and be clear when the graph does not contain an answer.", "When a pronoun or implicit reference is ambiguous, ask a concise clarification question rather than guessing.", "", "Bounded graph evidence (oldest first):", evidenceLines.length ? evidenceLines.join("\n") : "No connected graph evidence was found.", "", "Recent raw memories (fallback context only):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", conversationContext, "", "Current user message:", message].join("\n");
-    let result;
-    try { result = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt }); }
+    let result: { text?: string; toolExecutions?: number };
+    try { result = await generateGroundedAnswer(ai, graph, userId, prompt); }
     catch (error) { console.error("Primary Gemini model failed:", error); result = await ai.models.generateContent({ model: "gemini-flash-lite-latest", contents: prompt }); }
-    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, contextTurnsUsed: conversation.length, contextMemoryId: previousUserTurn?.memoryId || null, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
+    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, toolExecutions: result.toolExecutions || 0, contextTurnsUsed: conversation.length, contextMemoryId: previousUserTurn?.memoryId || null, memorySaved: true, memoryId, userId, entitiesCreated: persistedEntityCount, relationshipsCreated: persistedRelationshipCount });
   } catch (error) {
     console.error("Graph Memory chat failed:", error);
     return NextResponse.json({ error: "The chat request failed. Check the VS Code terminal for details." }, { status: 500 });
