@@ -32,4 +32,6 @@ The live chat and graph routes require configured Gemini/FalkorDB variables. See
 
 ## Current status
 
-The current implementation includes raw memory persistence, Gemini entity/relationship extraction, typed graph edges, unique short-name resolution, a responsive chat workspace, and a graph explorer with refresh, loading, empty, error, and node-detail states. User isolation, aliases, graph-powered retrieval, correction, forgetting, and automated tests remain planned milestones.
+The current implementation includes a responsive premium chat workspace with dark/light themes, graph-backed memory persistence and retrieval, entity identity resolution, provenance-aware typed relationships, bounded Gemini graph tools, recent conversational context, exact-memory correction with revision history, and reversible forgetting. The graph explorer includes refresh, loading, empty, error, and node-detail states.
+
+**Important:** user scope is currently based on a normalized request-level `userId`, not an authenticated session. Configure an authentication provider before using this as a multi-user production service. The live Gemini and FalkorDB routes also require the environment variables in `.env.example`.

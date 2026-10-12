@@ -104,6 +104,7 @@ export async function readGraphEvidence(graph: GraphQueryRunner, userId: string,
     `MATCH (m:Memory {userId: $userId})
      WHERE coalesce(m.deleted, false) = false
      OPTIONAL MATCH (m)-[:MENTIONS]->(e:Entity)
+     WHERE e.ownerUserId = $userId OR (e.ownerUserId IS NULL AND $userId = 'default')
      OPTIONAL MATCH (e)-[r]-(related:Entity)
      WHERE coalesce(r.deleted, false) = false
        AND (related IS NULL OR related.ownerUserId = $userId OR (related.ownerUserId IS NULL AND $userId = 'default'))
