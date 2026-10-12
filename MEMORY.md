@@ -16,13 +16,15 @@ _Last verified: 2026-10-12_
 - Entity writes use normalized keys and relationship types are allow-listed.
 - Unique known first-name resolution exists for extracted `Person` entities.
 - `/api/graph` returns raw memory nodes plus entity nodes and relationships.
-- `/graph` renders a force-directed graph with loading, empty, error, zoom-to-fit, and node detail states.
+- `/graph` renders a force-directed graph with loading, empty, error, refresh, zoom-to-fit, and node detail states.
+- Chat and graph screens now share responsive navigation, accessible focus states, refined loading/empty/error states, and updated product metadata.
 
 ## Baseline findings
 
 - `npm ci` passed.
 - `npm run lint` passed with one warning: unused `persistMemoryToGraph` in `app/api/chat/route.ts`.
-- `npm run build` failed: `GraphNode` in `app/graph/page.tsx` does not declare force-graph runtime `x` and `y` coordinates.
+- `npm run build` passed after `GraphNode` was updated with optional force-graph runtime `x` and `y` coordinates.
+- Local smoke tests returned HTTP 200 for `/` and `/graph`; missing integration configuration returned safe HTTP 500 JSON errors from `/api/chat` and `/api/graph`.
 - No automated tests exist.
 - Required Gemini/FalkorDB environment variables were unset, so live API checks were not run.
 - No tracked secret-like files were found.
@@ -43,3 +45,4 @@ _Last verified: 2026-10-12_
 - Preserve working chat and graph APIs while correcting build regressions and improving UI.
 - Implement identity, persistence, retrieval, correction, and user isolation as separate milestones.
 - Keep graph migrations additive and non-destructive.
+- Keep UI controls functional: graph refresh retries the API, navigation links route to real pages, and prompt chips populate the composer.

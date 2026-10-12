@@ -31,4 +31,4 @@ The live chat and graph routes require configured Gemini/FalkorDB variables. See
 
 ## Current status
 
-The baseline includes raw memory persistence, Gemini entity/relationship extraction, typed graph edges, unique short-name resolution, and a graph explorer. The next implementation milestone is UI/UX refinement plus repair of the current graph coordinate TypeScript error. User isolation, aliases, graph-powered retrieval, correction, forgetting, and automated tests remain planned milestones.
+The current implementation includes raw memory persistence, Gemini entity/relationship extraction, typed graph edges, unique short-name resolution, a responsive chat workspace, and a graph explorer with refresh, loading, empty, error, and node-detail states. User isolation, aliases, graph-powered retrieval, correction, forgetting, and automated tests remain planned milestones.
