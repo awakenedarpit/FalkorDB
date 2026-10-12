@@ -52,8 +52,9 @@ Each completed milestone gets a dedicated branch, focused commit(s), documentati
 
 - `npm ci`: passed.
 - `npm run lint`: passed with one warning for unused `persistMemoryToGraph`.
-- `npm run build`: failed TypeScript checking because graph node coordinates `x`/`y` are not declared in `GraphNode`.
+- `npm run build`: passed after graph node coordinates `x`/`y` were declared as optional runtime properties.
 - Gemini/FalkorDB smoke tests were not run because required environment variables were unset.
+- Local page smoke tests: `/` and `/graph` returned HTTP 200; missing integration configuration returned safe HTTP 500 JSON errors.
 - No tracked secret-like files were found.
 
 See `MEMORY.md`, `TRD.md`, and `CHANGELOG.md` for the maintained project record.
