@@ -130,7 +130,7 @@ export async function GET(req: NextRequest) {
     }
 
     const relationResult = await graph.query(
-      "MATCH (a:Entity)-[r:RELATION]->(b:Entity) RETURN a.key AS fromKey, b.key AS toKey, r.type AS relation"
+      "MATCH (a:Entity)-[r]->(b:Entity) RETURN a.key AS fromKey, b.key AS toKey, type(r) AS relation"
     );
     if (relationResult && Array.isArray(relationResult.data)) {
       for (const relation of relationResult.data as Array<{ fromKey?: string; toKey?: string; relation?: string }>) {
