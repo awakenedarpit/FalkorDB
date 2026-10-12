@@ -120,6 +120,53 @@ export async function POST(request: Request) {
     // Ask Gemini to use the retrieved memories when relevant.
     const ai = new GoogleGenAI({ apiKey });
 
+    // Extract named people, projects, teams, skills and explicit relationships.
+    // Raw memories are still saved even if structured extraction fails.
+    let extractedEntities: Array<{ name: string; type: string }> = [];
+    let extractedRelations: Array<{ from: string; relation: string; to: string }> = [];
+    try {
+      const extraction = await ai.models.generateContent({
+        model: "gemini-flash-lite-latest",
+        contents: [
+          "Extract knowledge from the user message as JSON only.",
+          'Schema: {"entities":[{"name":"string","type":"Person|Project|Team|Skill|Organization|Preference|Place|Other"}],"relationships":[{"from":"entity name","relation":"UPPER_SNAKE_CASE","to":"entity name"}]}.',
+          "Create separate Person entities for every named person, including introduced teammates. Include only facts explicit or strongly implied. Relationship endpoints must exactly match entity names. Never invent details. Return empty arrays if no facts.",
+          "Message:", message,
+        ].join("\n"),
+      });
+      const raw = (extraction.text || "").replace(/^\s*```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "");
+      const parsed = JSON.parse(raw) as {
+        entities?: Array<{ name?: unknown; type?: unknown }>;
+        relationships?: Array<{ from?: unknown; relation?: unknown; to?: unknown }>;
+      };
+      const allowedTypes = new Set(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
+      extractedEntities = (Array.isArray(parsed.entities) ? parsed.entities : [])
+        .filter((e) => typeof e.name === "string" && e.name.trim() && typeof e.type === "string")
+        .map((e) => ({ name: (e.name as string).trim().slice(0, 120), type: allowedTypes.has(e.type as string) ? e.type as string : "Other" }))
+        .slice(0, 30);
+      const canonical = (name: string) => extractedEntities.find((e) => e.name.toLowerCase() === name.toLowerCase())?.name;
+      extractedRelations = (Array.isArray(parsed.relationships) ? parsed.relationships : [])
+        .filter((r) => typeof r.from === "string" && typeof r.to === "string" && typeof r.relation === "string" && canonical(r.from as string) && canonical(r.to as string))
+        .map((r) => ({ from: canonical(r.from as string)!, to: canonical(r.to as string)!, relation: (r.relation as string).toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 40) || "RELATED_TO" }))
+        .slice(0, 50);
+      const keyFor = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 100);
+      for (const entity of extractedEntities) {
+        await graph.query(
+          "MERGE (e:Entity {key: $key}) SET e.name = $name, e.type = $type, e.updatedAt = timestamp()",
+          { params: { key: keyFor(entity.name), name: entity.name, type: entity.type } }
+        );
+      }
+      for (const relation of extractedRelations) {
+        await graph.query(
+          "MATCH (a:Entity {key: $fromKey}), (b:Entity {key: $toKey}) MERGE (a)-[r:RELATION {type: $relation}]->(b) SET r.updatedAt = timestamp()",
+          { params: { fromKey: keyFor(relation.from), toKey: keyFor(relation.to), relation: relation.relation } }
+        );
+      }
+    } catch (extractionError) {
+      console.error("[GRAPH MEMORY] Structured extraction failed; raw memory is still saved:", extractionError);
+    }
+
+
     const prompt = [
       "You are a helpful Graph Memory Agent.",
       "Use the saved memories below when they are relevant to the user's message.",
@@ -159,6 +206,8 @@ try {
         "I couldn't generate a response. Please try again.",
       memoriesUsed: previousMemories.length,
       memorySaved: true,
+      entitiesCreated: extractedEntities.length,
+      relationshipsCreated: extractedRelations.length,
     });
   } catch (error) {
     console.error("Graph Memory chat failed:", error);
