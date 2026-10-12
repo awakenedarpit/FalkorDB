@@ -20,6 +20,7 @@ Graph Memory Agent is a Next.js App Router application for the Graph Hacks hacka
 npm ci
 npm run lint
 npm run build
+npm test
 npm run dev
 ```
 
@@ -55,6 +56,7 @@ Each completed milestone gets a dedicated branch, focused commit(s), documentati
 - `npm run build`: passed after graph node coordinates `x`/`y` were declared as optional runtime properties.
 - Gemini/FalkorDB smoke tests were not run because required environment variables were unset.
 - Local page smoke tests: `/` and `/graph` returned HTTP 200; missing integration configuration returned safe HTTP 500 JSON errors.
+- `npm test`: passed six identity and duplicate-prevention regression tests.
 - No tracked secret-like files were found.
 
 See `MEMORY.md`, `TRD.md`, and `CHANGELOG.md` for the maintained project record.
