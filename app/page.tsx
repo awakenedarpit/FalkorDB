@@ -1,59 +1,150 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; memoryId?: string };
+type ChatSession = { id: string; title: string; createdAt: number; updatedAt: number; messages: Message[] };
+type Theme = "dark" | "light";
+type AuthMode = "login" | "signup";
 
 const starterPrompts = [
-  "Remember that my hackathon project uses FalkorDB.",
-  "What do you remember about my project?",
-  "Connect the people and tools I have mentioned.",
+  { icon: "✦", label: "Remember a fact", text: "Remember that my hackathon project uses FalkorDB." },
+  { icon: "⌕", label: "Recall context", text: "What do you remember about my project?" },
+  { icon: "◌", label: "Explore a connection", text: "Connect the people and tools I have mentioned." },
 ];
 
+const welcomeMessage: Message = { role: "assistant", content: "Hello — I’m your Graph Memory Agent. I can remember the useful details behind your work, connect the dots, and bring them back when you need them." };
+
+function createChat(): ChatSession {
+  const now = Date.now();
+  return { id: `chat-${now}-${Math.random().toString(36).slice(2, 7)}`, title: "New memory chat", createdAt: now, updatedAt: now, messages: [welcomeMessage] };
+}
+
+function formatChatDate(timestamp: number): string {
+  const date = new Date(timestamp);
+  const today = new Date();
+  if (date.toDateString() === today.toDateString()) return "Today";
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export default function Home() {
-  const [messages, setMessages] = useState<Message[]>([
-    { role: "assistant", content: "Hello — I’m your Graph Memory Agent. Tell me something worth remembering, or ask about a fact you’ve already shared." },
-  ]);
+  const [sessions, setSessions] = useState<ChatSession[]>([]);
+  const [activeId, setActiveId] = useState("");
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [theme, setTheme] = useState<Theme>("dark");
+  const [mounted, setMounted] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [chatSearch, setChatSearch] = useState("");
+  const [authOpen, setAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
+  const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
+  const [authNotice, setAuthNotice] = useState("");
+  const endRef = useRef<HTMLDivElement>(null);
 
-  async function sendMessage(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
+  const activeChat = sessions.find((session) => session.id === activeId) || sessions[0];
+  const visibleSessions = useMemo(() => sessions.filter((session) => session.title.toLowerCase().includes(chatSearch.toLowerCase())), [sessions, chatSearch]);
+
+  useEffect(() => {
+    const storedChats = window.localStorage.getItem("graph-memory-chats");
+    const initial = storedChats ? JSON.parse(storedChats) as ChatSession[] : [createChat()];
+    setSessions(initial.length ? initial : [createChat()]);
+    setActiveId(initial[0]?.id || "");
+    const storedTheme = window.localStorage.getItem("graph-memory-theme") as Theme | null;
+    const nextTheme = storedTheme === "light" || storedTheme === "dark" ? storedTheme : window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+    setTheme(nextTheme);
+    document.documentElement.dataset.theme = nextTheme;
+    const storedProfile = window.localStorage.getItem("graph-memory-profile");
+    if (storedProfile) setProfile(JSON.parse(storedProfile));
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (!mounted) return;
+    window.localStorage.setItem("graph-memory-chats", JSON.stringify(sessions));
+  }, [sessions, mounted]);
+
+  useEffect(() => {
+    if (!mounted) return;
+    document.documentElement.dataset.theme = theme;
+    window.localStorage.setItem("graph-memory-theme", theme);
+  }, [theme, mounted]);
+
+  useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [activeChat?.messages.length, loading]);
+
+  function updateActiveChat(updater: (chat: ChatSession) => ChatSession) {
+    setSessions((previous) => previous.map((chat) => chat.id === activeChat?.id ? updater(chat) : chat));
+  }
+
+  function startNewChat() {
+    const next = createChat();
+    setSessions((previous) => [next, ...previous]);
+    setActiveId(next.id);
+    setInput("");
+    setSidebarOpen(false);
+  }
+
+  function selectChat(id: string) {
+    setActiveId(id);
+    setSidebarOpen(false);
+  }
+
+  async function sendMessage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     const text = input.trim();
-    if (!text || loading) return;
-    setMessages((previous) => [...previous, { role: "user", content: text }]);
+    if (!text || loading || !activeChat) return;
+    const conversation = activeChat.messages.slice(-8).map(({ role, content, memoryId }) => ({ role, content, ...(memoryId ? { memoryId } : {}) }));
+    updateActiveChat((chat) => ({ ...chat, title: chat.title === "New memory chat" ? text.slice(0, 48) : chat.title, updatedAt: Date.now(), messages: [...chat.messages, { role: "user", content: text }] }));
     setInput("");
     setLoading(true);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) });
+      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, conversation }) });
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The AI request failed.");
-      setMessages((previous) => [...previous, { role: "assistant", content: data.reply || "Gemini returned an empty response." }]);
+      updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: chat.messages.map((item, index) => index === chat.messages.length - 1 && item.role === "user" && typeof data.memoryId === "string" ? { ...item, memoryId: data.memoryId } : item).concat({ role: "assistant", content: data.reply || "Gemini returned an empty response." }) }));
     } catch (error) {
-      setMessages((previous) => [...previous, { role: "assistant", content: error instanceof Error ? `I couldn’t reach the memory service: ${error.message}` : "I couldn’t reach the memory service. Please try again." }]);
+      updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: [...chat.messages, { role: "assistant", content: error instanceof Error ? `I couldn’t reach the memory service: ${error.message}` : "I couldn’t reach the memory service. Please try again." }] }));
     } finally {
       setLoading(false);
     }
   }
 
+  function submitAuth(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const email = String(form.get("email") || "").trim();
+    const name = String(form.get("name") || "").trim() || email.split("@")[0] || "Explorer";
+    if (!email) return;
+    const nextProfile = { name, email };
+    setProfile(nextProfile);
+    window.localStorage.setItem("graph-memory-profile", JSON.stringify(nextProfile));
+    setAuthNotice(authMode === "signup" ? "Your local workspace profile is ready." : "Welcome back to your local workspace.");
+    window.setTimeout(() => { setAuthOpen(false); setAuthNotice(""); }, 900);
+  }
+
   return (
-    <main className="min-h-screen bg-[var(--background)] text-[var(--foreground)] lg:flex">
-      <aside className="border-b border-white/10 bg-[#0e1425] px-5 py-5 lg:flex lg:min-h-screen lg:w-72 lg:shrink-0 lg:flex-col lg:border-b-0 lg:border-r lg:px-6 lg:py-7">
-        <div className="flex items-center justify-between gap-3"><div className="flex items-center gap-3"><div className="brand-mark" aria-hidden="true">G</div><div><p className="font-semibold tracking-tight">Graph Memory</p><p className="text-xs text-slate-500">AI agent workspace</p></div></div><span className="status-dot" title="Workspace available" aria-label="Workspace available" /></div>
-        <nav className="mt-8" aria-label="Workspace navigation"><p className="eyebrow mb-3">Workspace</p><Link className="nav-item nav-item-active" href="/" aria-current="page"><span aria-hidden="true">✦</span><span><strong>Memory chat</strong><small>Talk to your agent</small></span></Link><Link className="nav-item" href="/graph"><span aria-hidden="true">◌</span><span><strong>Graph explorer</strong><small>Inspect connected facts</small></span></Link></nav>
-        <div className="mt-8 hidden rounded-2xl border border-white/10 bg-white/[0.03] p-4 lg:block"><p className="text-sm font-medium">Memory, made visible</p><p className="mt-2 text-xs leading-5 text-slate-400">Save useful facts, connect related entities, and build context that improves over time.</p><div className="mt-4 flex items-center gap-2 text-xs text-emerald-300"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" aria-hidden="true" />Gemini + FalkorDB connected</div></div>
-        <p className="mt-auto hidden pt-8 text-xs leading-5 text-slate-600 lg:block">Your memory graph is designed to grow one useful connection at a time.</p>
+    <main className="app-shell">
+      <div className={`mobile-scrim ${sidebarOpen ? "is-visible" : ""}`} onClick={() => setSidebarOpen(false)} aria-hidden="true" />
+      <aside className={`workspace-sidebar ${sidebarOpen ? "is-open" : ""}`}>
+        <div className="sidebar-topline"><Link href="/" className="brand" aria-label="Graph Memory home"><span className="brand-symbol">G</span><span><strong>Graph Memory</strong><small>Personal knowledge workspace</small></span></Link><button type="button" className="icon-button mobile-close" onClick={() => setSidebarOpen(false)} aria-label="Close sidebar">×</button></div>
+        <button type="button" className="new-chat-button" onClick={startNewChat}><span className="new-chat-plus">＋</span> New chat <kbd>⌘ K</kbd></button>
+        <nav className="workspace-nav" aria-label="Workspace navigation"><p className="nav-label">Workspace</p><Link href="/" className="workspace-link workspace-link-active"><span className="nav-icon">✦</span><span>Memory chat</span><span className="nav-arrow">⌘ 1</span></Link><Link href="/graph" className="workspace-link"><span className="nav-icon">◌</span><span>Graph explorer</span><span className="nav-arrow">⌘ 2</span></Link></nav>
+        <div className="chat-history"><div className="history-heading"><p className="nav-label">Your chats</p><button type="button" className="icon-button small" aria-label="Search chats" onClick={() => document.getElementById("chat-search")?.focus()}>⌕</button></div><div className="search-field"><span>⌕</span><input id="chat-search" value={chatSearch} onChange={(event) => setChatSearch(event.target.value)} placeholder="Search chats" aria-label="Search chats" /></div><div className="history-list">{visibleSessions.length ? visibleSessions.map((session) => <button key={session.id} type="button" className={`history-item ${activeChat?.id === session.id ? "history-item-active" : ""}`} onClick={() => selectChat(session.id)}><span className="history-item-title">{session.title}</span><span className="history-item-date">{formatChatDate(session.updatedAt)}</span></button>) : <p className="empty-history">No chats found</p>}</div></div>
+        <div className="sidebar-footer"><div className="plan-card"><div className="plan-card-icon">✦</div><div><strong>Memory is growing</strong><p>Connect more facts to make recall richer.</p></div></div><div className="footer-row"><button type="button" className="profile-button" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}><span className="profile-avatar">{profile?.name?.[0]?.toUpperCase() || "A"}</span><span className="profile-copy"><strong>{profile?.name || "Guest explorer"}</strong><small>{profile?.email || "Sign in to sync"}</small></span></button><button type="button" className="icon-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}>{theme === "dark" ? "☼" : "◐"}</button></div></div>
       </aside>
-      <section className="flex min-h-screen min-w-0 flex-1 flex-col">
-        <header className="border-b border-white/10 bg-[#0b1020]/80 px-5 py-5 backdrop-blur md:px-10"><div className="mx-auto flex w-full max-w-4xl items-start justify-between gap-4"><div><p className="eyebrow">Project / Agent memory</p><h1 className="mt-2 text-2xl font-semibold tracking-tight text-white md:text-3xl">Your memory assistant</h1><p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">A conversational front door to the people, projects, and relationships in your graph.</p></div><Link href="/graph" className="secondary-button hidden sm:inline-flex">Open graph <span aria-hidden="true">→</span></Link></div></header>
-        <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col px-4 py-6 md:px-8 md:py-10">
-          <div className="welcome-card"><div className="flex items-start gap-4"><div className="icon-tile" aria-hidden="true">✦</div><div><p className="text-sm font-semibold text-violet-200">A memory layer for your work</p><p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">Share a fact or ask a question. The agent stores useful context in FalkorDB and uses it when it can support a better answer.</p></div></div></div>
-          <div className="mt-8 flex-1 space-y-5" aria-live="polite" aria-label="Conversation">{messages.map((message, index) => <div key={`${message.role}-${index}`} className={`flex gap-3 ${message.role === "user" ? "justify-end" : "justify-start"}`}>{message.role === "assistant" && <div className="avatar avatar-agent" aria-hidden="true">G</div>}<div className={`message-bubble ${message.role === "user" ? "message-user" : "message-agent"}`}>{message.content}</div></div>)}{loading && <div className="flex items-center gap-3 text-sm text-slate-400" role="status"><div className="avatar avatar-agent" aria-hidden="true">G</div><span className="typing-indicator"><i /><i /><i /> Thinking through your graph…</span></div>}</div>
-          <div className="mt-8"><p className="eyebrow mb-3">Try a prompt</p><div className="flex gap-2 overflow-x-auto pb-2" aria-label="Suggested prompts">{starterPrompts.map((prompt) => <button key={prompt} type="button" className="prompt-chip" onClick={() => setInput(prompt)}>{prompt}</button>)}</div></div>
-          <form onSubmit={sendMessage} className="mt-3"><div className="composer"><label htmlFor="message" className="sr-only">Message your agent</label><textarea id="message" value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} placeholder="Tell me something to remember…" rows={1} disabled={loading} className="min-h-12 min-w-0 flex-1 resize-none bg-transparent px-3 py-3 text-sm leading-6 outline-none placeholder:text-slate-600 disabled:opacity-50" /><button type="submit" disabled={loading || !input.trim()} className="primary-button self-end">{loading ? "Sending…" : "Send"}<span aria-hidden="true">↗</span></button></div><p className="mt-3 text-center text-xs text-slate-600">Enter to send · Shift + Enter for a new line</p></form>
-        </div>
+
+      <section className="main-workspace">
+        <header className="topbar"><div className="topbar-left"><button type="button" className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">☰</button><div className="mobile-page-title"><span className="status-dot" /> Graph Memory</div><div className="model-picker"><span className="model-orb">✦</span><span><strong>Graph Memory</strong><small>Automatic context</small></span><span className="chevron">⌄</span></div></div><div className="topbar-actions"><span className="connection-status"><i /> <span>FalkorDB connected</span></span><button type="button" className="icon-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle color theme">{theme === "dark" ? "☼" : "◐"}</button><button type="button" className="share-button" onClick={() => navigator.clipboard?.writeText(window.location.href)}><span>↗</span> Share</button><button type="button" className="top-avatar" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>{profile?.name?.[0]?.toUpperCase() || "A"}</button></div></header>
+        <div className="chat-viewport"><div className="chat-column">
+          <div className="chat-heading"><div className="heading-kicker"><span className="sparkle">✦</span> Your private knowledge layer</div><h1>{activeChat?.title === "New memory chat" ? "What would you like to remember?" : activeChat?.title}</h1><p>Store the details behind your work, then ask questions that span people, projects, and relationships.</p></div>
+          <div className="message-list" aria-live="polite" aria-label="Conversation">{activeChat?.messages.map((message, index) => <div key={`${activeChat.id}-${message.role}-${index}`} className={`message-row ${message.role === "user" ? "message-row-user" : ""}`}><div className={`message-avatar ${message.role === "user" ? "user-avatar" : "agent-avatar"}`}>{message.role === "user" ? (profile?.name?.[0]?.toUpperCase() || "A") : "✦"}</div><div className="message-content"><div className="message-meta"><strong>{message.role === "user" ? profile?.name || "You" : "Graph Memory"}</strong><span>{message.role === "user" ? "Just now" : "Agent response"}</span></div><div className={`message-text ${message.role === "user" ? "message-text-user" : ""}`}>{message.content}</div></div></div>)}{loading && <div className="message-row" role="status"><div className="message-avatar agent-avatar">✦</div><div className="message-content"><div className="message-meta"><strong>Graph Memory</strong><span>Thinking</span></div><div className="loading-line"><span /><span /><span /></div></div></div>}<div ref={endRef} /></div>
+          {activeChat?.messages.length === 1 && <div className="starter-grid">{starterPrompts.map((prompt) => <button key={prompt.text} type="button" className="starter-card" onClick={() => setInput(prompt.text)}><span className="starter-icon">{prompt.icon}</span><span><strong>{prompt.label}</strong><small>{prompt.text}</small></span><span className="starter-arrow">↗</span></button>)}</div>}
+          <form onSubmit={sendMessage} className="composer-wrap"><div className="premium-composer"><div className="composer-tools"><button type="button" className="composer-icon" aria-label="Add context">＋</button></div><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Message your memory agent…" rows={1} disabled={loading} aria-label="Message your memory agent" /><div className="composer-actions"><span className="composer-hint">{loading ? "Working…" : "↵ to send"}</span><button type="submit" className="send-button" disabled={loading || !input.trim()} aria-label="Send message">↑</button></div></div><p className="composer-disclaimer">Graph Memory can make mistakes. Check important information against your source graph.</p></form>
+        </div></div>
       </section>
+
+      {authOpen && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setAuthOpen(false); }}><div className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title"><button type="button" className="modal-close icon-button" onClick={() => setAuthOpen(false)} aria-label="Close account dialog">×</button><div className="auth-mark">✦</div><h2 id="auth-title">{authMode === "login" ? "Welcome back" : "Create your workspace"}</h2><p className="auth-subtitle">{authMode === "login" ? "Sign in to keep your memory workspace close." : "Start building a private layer for your work."}</p><div className="auth-tabs"><button type="button" className={authMode === "login" ? "auth-tab-active" : ""} onClick={() => setAuthMode("login")}>Sign in</button><button type="button" className={authMode === "signup" ? "auth-tab-active" : ""} onClick={() => setAuthMode("signup")}>Create account</button></div><form onSubmit={submitAuth} className="auth-form">{authMode === "signup" && <label>Full name<input name="name" type="text" placeholder="Alex Morgan" /></label>}<label>Email address<input name="email" type="email" placeholder="you@example.com" required /></label><label>Password<input name="password" type="password" placeholder="••••••••" required /></label><button type="submit" className="auth-submit">{authMode === "login" ? "Sign in" : "Create account"}<span>→</span></button></form><p className="auth-note">This visual account flow stores a local profile in your browser. Connect your auth provider to enable secure account sync.</p>{authNotice && <p className="auth-success">{authNotice}</p>}</div></div>}
     </main>
   );
 }

@@ -43,6 +43,37 @@ All notable project changes are recorded here.
 - Added controlled graph-query integration tests for configuration, scoping, memory writes, entity ownership, provenance links, typed relationships, and retrieval parameters.
 - Validation passed: 12 tests, lint, and production build.
 
+### Milestone 4 — Graph-powered retrieval
+
+- Added bounded, user-scoped graph evidence retrieval from recent memories through `MENTIONS` and one entity-relationship hop.
+- Grouped duplicate graph rows per memory and included connected entity and relationship facts in the chat prompt.
+- Preserved the existing chat response fields and added `graphEvidenceUsed` for observability.
+- Added regression coverage for query scoping, bounded limits, duplicate grouping, ordering, and relationship evidence.
+
+### Milestone 5 — Memory correction and forgetting
+
+- Added `POST /api/memory` with exact `memoryId` targeting for correction and forgetting.
+- Corrections update the active memory while preserving the prior content in a `MemoryRevision` node.
+- Forgetting uses reversible soft deletion and hides source relationships from retrieval and graph exploration without deleting graph data.
+- Forgetting requires `confirmed: true` and rejects missing, stale, or cross-user memory IDs.
+
+### Milestone 6 — Conversational context
+
+- Added bounded conversation-turn sanitization for recent user and assistant messages.
+- Retained returned memory IDs on client user turns so follow-ups can identify the exact prior memory candidate.
+- Added explicit pronoun and implicit-reference guidance to extraction and response prompts.
+- Ambiguous references now require clarification instead of an inferred graph target.
+- Added regression tests for context limits, memory ID preservation, pronoun detection, and no-referent safety.
+
+### Graph-aware memory retrieval — first tool-using milestone
+
+- Added fixed, read-only `search_memories` and `find_entity_relationships` tools over the existing FalkorDB schema.
+- Added strict tool-name and argument validation, normalized user scoping, and a maximum of four tool executions per chat request.
+- Returned graph tool evidence to Gemini before answer generation, including explicit empty and ambiguous outcomes.
+- Changed memory, entity, mention, and relationship writes to return confirmation rows before reporting success.
+- Added tests for relationship retrieval, missing information, ambiguous names, malformed/unknown tools, and user-scope parameters.
+
 ### Planned next
 
-- Milestone 2: robust identity resolution, aliases, and duplicate prevention.
+- Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
+- Milestone 7: graph search, filtering, details, and path highlighting.

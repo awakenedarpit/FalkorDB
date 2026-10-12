@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const graph = client.selectGraph(config.graphName);
     const result = await graph.query(`
       MATCH (m:Memory)
-      WHERE m.userId = $userId
+      WHERE m.userId = $userId AND coalesce(m.deleted, false) = false
       RETURN $userId AS sourceId, 'User' AS sourceType,
              toString(id(m)) AS targetId, labels(m)[0] AS targetType,
              m.content AS content, 'HAS_MEMORY' AS relType
@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         nodesMap.set(`entity:${raw.key}`, { id: `entity:${raw.key}`, label: raw.name || raw.key, type: raw.type || "Other" });
       }
     }
-    const relationResult = await graph.query(`MATCH (a:Entity)-[r]->(b:Entity) WHERE (${entityScope.replaceAll("e.", "a.")}) AND (b.ownerUserId = $userId OR (b.ownerUserId IS NULL AND $userId = 'default')) RETURN a.key AS fromKey, b.key AS toKey, type(r) AS relation`, { params: { userId } });
+    const relationResult = await graph.query(`MATCH (a:Entity)-[r]->(b:Entity) WHERE coalesce(r.deleted, false) = false AND (${entityScope.replaceAll("e.", "a.")}) AND (b.ownerUserId = $userId OR (b.ownerUserId IS NULL AND $userId = 'default')) RETURN a.key AS fromKey, b.key AS toKey, type(r) AS relation`, { params: { userId } });
     if (relationResult && Array.isArray(relationResult.data)) {
       for (const relation of relationResult.data as Array<{ fromKey?: string; toKey?: string; relation?: string }>) {
         if (!relation.fromKey || !relation.toKey || !entityIds.has(relation.fromKey) || !entityIds.has(relation.toKey)) continue;
