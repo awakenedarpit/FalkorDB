@@ -151,15 +151,27 @@ export async function POST(request: Request) {
         .slice(0, 50);
       const keyFor = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 100);
       for (const entity of extractedEntities) {
+        const entityLabel = new Set(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]).has(entity.type)
+          ? entity.type
+          : "Other";
+        // Keep the common :Entity label for lookups, and add a domain label
+        // (such as :Person or :Project) so FalkorDB's schema view is meaningful.
         await graph.query(
-          "MERGE (e:Entity {key: $key}) SET e.name = $name, e.type = $type, e.updatedAt = timestamp()",
+          `MERGE (e:Entity {key: $key}) SET e.name = $name, e.type = $type, e.updatedAt = timestamp() SET e:${entityLabel}`,
           { params: { key: keyFor(entity.name), name: entity.name, type: entity.type } }
         );
       }
       for (const relation of extractedRelations) {
+        const safeRelationType = new Set([
+          "BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES",
+          "USES", "RELATED_TO", "HANDLES", "LEADS", "CREATED", "PART_OF",
+          "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH"
+        ]).has(relation.relation) ? relation.relation : "RELATED_TO";
+        // Use an actual relationship type so FalkorDB can display the connection
+        // as e.g. (:Person)-[:BUILDS]->(:Project), not a generic RELATION property.
         await graph.query(
-          "MATCH (a:Entity {key: $fromKey}), (b:Entity {key: $toKey}) MERGE (a)-[r:RELATION {type: $relation}]->(b) SET r.updatedAt = timestamp()",
-          { params: { fromKey: keyFor(relation.from), toKey: keyFor(relation.to), relation: relation.relation } }
+          `MATCH (a:Entity {key: $fromKey}), (b:Entity {key: $toKey}) MERGE (a)-[r:${safeRelationType}]->(b) SET r.updatedAt = timestamp()`,
+          { params: { fromKey: keyFor(relation.from), toKey: keyFor(relation.to) } }
         );
       }
     } catch (extractionError) {
