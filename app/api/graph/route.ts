@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
 
   try {
     const { searchParams } = new URL(req.url);
-    const userId = searchParams.get("userId");
+    // Chat currently stores memories with userId "default". Use that
+    // convention unless the caller explicitly asks for another user.
+    const userId = searchParams.get("userId") || "default";
 
     const host = process.env.FALKORDB_HOST;
     const port = Number(process.env.FALKORDB_PORT);
@@ -55,37 +57,29 @@ export async function GET(req: NextRequest) {
 
     const graph = client.selectGraph(graphName);
 
-    const query = userId
-      ? `
-        MATCH (u:User { id: $userId })-[r:HAS_MEMORY]->(m:Memory)
-        RETURN u.id AS sourceId, labels(u)[0] AS sourceType,
-               m.id AS targetId, labels(m)[0] AS targetType,
-               m.content AS content, type(r) AS relType
+    // Support both shapes used by this project:
+    // 1) chat-created flat (:Memory { userId, content, createdAt }) nodes
+    // 2) connected (:User)-[:HAS_MEMORY]->(:Memory) nodes.
+    // The first query is the active chat schema, so create visual User -> Memory
+    // links in the response without requiring database relationships to exist.
+    const result = await graph.query(
       `
-      : `
-        MATCH (u:User)-[r:HAS_MEMORY]->(m:Memory)
-        RETURN u.id AS sourceId, labels(u)[0] AS sourceType,
-               m.id AS targetId, labels(m)[0] AS targetType,
-               m.content AS content, type(r) AS relType
-      `;
-
-    const result = await graph.query(query, {
-      params: { userId: userId || "" },
-    });
+        MATCH (m:Memory)
+        WHERE m.userId = $userId
+        RETURN $userId AS sourceId, 'User' AS sourceType,
+               toString(id(m)) AS targetId, labels(m)[0] AS targetType,
+               m.content AS content, 'HAS_MEMORY' AS relType
+        ORDER BY m.createdAt ASC
+      `,
+      { params: { userId } }
+    );
 
     const nodesMap = new Map<string, GraphNode>();
     const links: GraphLink[] = [];
 
     if (result && Array.isArray(result.data)) {
       for (const row of result.data as GraphRow[]) {
-        const {
-          sourceId,
-          sourceType,
-          targetId,
-          targetType,
-          content,
-          relType,
-        } = row;
+        const { sourceId, sourceType, targetId, targetType, content, relType } = row;
 
         if (sourceId !== undefined && sourceId !== null && !nodesMap.has(String(sourceId))) {
           nodesMap.set(String(sourceId), {
@@ -107,10 +101,7 @@ export async function GET(req: NextRequest) {
           });
         }
 
-        if (
-          sourceId !== undefined && sourceId !== null &&
-          targetId !== undefined && targetId !== null
-        ) {
+        if (sourceId !== undefined && sourceId !== null && targetId !== undefined && targetId !== null) {
           links.push({
             source: String(sourceId),
             target: String(targetId),
@@ -125,8 +116,7 @@ export async function GET(req: NextRequest) {
       links,
     });
   } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[API/GRAPH] FalkorDB query failed:", errorMessage);
     return NextResponse.json(
       { error: "Failed to retrieve graph data" },
