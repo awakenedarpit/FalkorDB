@@ -23,25 +23,36 @@ interface GraphLink {
 }
 
 export async function GET(req: NextRequest) {
+  let client: Awaited<ReturnType<typeof FalkorDB.connect>> | undefined;
+
   try {
     const { searchParams } = new URL(req.url);
     const userId = searchParams.get("userId");
 
+    const host = process.env.FALKORDB_HOST;
+    const port = Number(process.env.FALKORDB_PORT);
+    const username = process.env.FALKORDB_USERNAME;
+    const password = process.env.FALKORDB_PASSWORD;
     const graphName = process.env.FALKORDB_GRAPH_NAME || "memory_agent";
-    const url = process.env.FALKORDB_URL;
-    const host = process.env.FALKORDB_HOST || "localhost";
-    const port = parseInt(process.env.FALKORDB_PORT || "6379", 10);
-    const password = process.env.FALKORDB_PASSWORD || undefined;
 
-    let client;
-    if (url) {
-      client = await FalkorDB.connect({ url });
-    } else {
-      client = await FalkorDB.connect({
-        socket: { host, port },
-        ...(password ? { password } : {}),
-      });
+    if (!host || !Number.isFinite(port) || port <= 0 || !username || !password) {
+      return NextResponse.json(
+        { error: "FalkorDB configuration is missing or invalid." },
+        { status: 500 }
+      );
     }
+
+    client = await FalkorDB.connect({
+      username,
+      password,
+      socket: {
+        host,
+        port,
+        tls: false,
+        connectTimeout: 10000,
+      },
+    });
+
     const graph = client.selectGraph(graphName);
 
     const query = userId
@@ -76,7 +87,7 @@ export async function GET(req: NextRequest) {
           relType,
         } = row;
 
-        if (sourceId && !nodesMap.has(String(sourceId))) {
+        if (sourceId !== undefined && sourceId !== null && !nodesMap.has(String(sourceId))) {
           nodesMap.set(String(sourceId), {
             id: String(sourceId),
             label: `User (${sourceId})`,
@@ -84,7 +95,7 @@ export async function GET(req: NextRequest) {
           });
         }
 
-        if (targetId && !nodesMap.has(String(targetId))) {
+        if (targetId !== undefined && targetId !== null && !nodesMap.has(String(targetId))) {
           nodesMap.set(String(targetId), {
             id: String(targetId),
             label: content
@@ -96,7 +107,10 @@ export async function GET(req: NextRequest) {
           });
         }
 
-        if (sourceId && targetId) {
+        if (
+          sourceId !== undefined && sourceId !== null &&
+          targetId !== undefined && targetId !== null
+        ) {
           links.push({
             source: String(sourceId),
             target: String(targetId),
@@ -118,5 +132,13 @@ export async function GET(req: NextRequest) {
       { error: "Failed to retrieve graph data" },
       { status: 500 }
     );
+  } finally {
+    if (client) {
+      try {
+        await client.close();
+      } catch (closeError) {
+        console.error("[API/GRAPH] FalkorDB close failed:", closeError);
+      }
+    }
   }
 }
