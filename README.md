@@ -25,6 +25,7 @@ Open <http://localhost:3000> for chat and <http://localhost:3000/graph> for the 
 ```bash
 npm run lint
 npm run build
+npm test
 ```
 
 The live chat and graph routes require configured Gemini/FalkorDB variables. See `AGENTS.md`, `MEMORY.md`, `PRD.md`, and `TRD.md` for architecture, safety rules, requirements, and verified status.

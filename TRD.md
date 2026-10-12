@@ -29,11 +29,16 @@ Diagnostic-only write/read check. It currently writes a fixed `MemoryTest` node 
 ## Graph schema (current)
 
 - `(:Memory { userId, content, createdAt })`
-- `(:Entity { key, name, type, updatedAt })`
+- `(:Entity { key, name, type, aliases, updatedAt })`
+- New entity keys are type-scoped slugs such as `person_arpit_raj`; existing legacy keys remain valid and are reused when exact identity matches.
 - Domain labels: `Person`, `Project`, `Team`, `Skill`, `Organization`, `Preference`, `Place`, `Other`.
 - Typed edges currently allow: `BUILDS`, `MEMBER_OF`, `TEAMMATE_OF`, `KNOWS`, `WORKS_ON`, `LIKES`, `USES`, `RELATED_TO`, `HANDLES`, `LEADS`, `CREATED`, `PART_OF`, `STUDIES`, `LOCATED_IN`, `HAS_SKILL`, `COLLABORATES_WITH`.
 
 Future schema work should add provenance and aliases additively, preserve existing labels/edges, and avoid destructive migrations.
+
+## Identity resolution rules
+
+Identity matching normalizes Unicode text, punctuation, and case. An exact canonical name or declared alias resolves to the existing entity. A short `Person` name resolves only when exactly one known person matches; if multiple people match, the entity and any relationship using that ambiguous name are skipped rather than guessed. New entities receive type-scoped keys, extracted duplicates are collapsed before writes, and relationship writes use `MERGE` plus an in-batch duplicate set.
 
 ## Security requirements
 
@@ -46,6 +51,6 @@ Future schema work should add provenance and aliases additively, preserve existi
 ## Testing strategy
 
 - Static: lint, TypeScript, production build.
-- Unit/regression: normalization, unique short-name matching, duplicate entity/edge prevention, allow-list validation, and safe missing-config errors.
+- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, allow-list validation, and safe missing-config errors. Run with `npm test`.
 - Integration: chat persistence, graph retrieval, correction, forgetting, and user isolation against a controlled FalkorDB instance.
 - UI smoke: responsive chat send/error/loading and graph loading/empty/error/node-detail flows.

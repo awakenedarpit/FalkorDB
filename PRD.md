@@ -46,7 +46,7 @@ Graph Memory Agent helps a user store meaningful facts in a knowledge graph and 
 
 - M0: documented architecture, baseline checks, risks, and setup.
 - M1: clean production build; polished responsive chat/graph UI; no fake controls.
-- M2: repeatable identity and duplicate-prevention tests.
+- M2: implemented with canonical/type-scoped identity keys, explicit aliases, ambiguity-safe short-name matching, duplicate-resistant entity and relationship writes, and six repeatable regression tests.
 - M3: typed, user-scoped, provenance-aware persistence.
 - M4: bounded graph retrieval and multi-hop evidence.
 - M5: safe correction and forgetting.
