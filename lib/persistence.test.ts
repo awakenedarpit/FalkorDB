@@ -1,0 +1,73 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import {
+  getFalkorConfig,
+  linkMemoryToEntity,
+  normalizeUserId,
+  readRecentMemories,
+  scopeEntityKey,
+  writeEntity,
+  writeMemory,
+  writeRelationship,
+} from "./persistence.ts";
+import type { GraphQueryOptions } from "./persistence.ts";
+
+type QueryCall = { cypher: string; params?: GraphQueryOptions["params"] };
+
+function createMockGraph(rows: unknown[] = []) {
+  const calls: QueryCall[] = [];
+  return {
+    calls,
+    async query(cypher: string, options?: GraphQueryOptions) {
+      calls.push({ cypher, params: options?.params });
+      return { data: rows };
+    },
+  };
+}
+
+test("loads one consistent FalkorDB configuration and graph name", () => {
+  assert.deepEqual(getFalkorConfig({ FALKORDB_HOST: "db", FALKORDB_PORT: "6380", FALKORDB_USERNAME: "user", FALKORDB_PASSWORD: "secret", FALKORDB_GRAPH_NAME: "project_memory" }), {
+    host: "db", port: 6380, username: "user", password: "secret", graphName: "project_memory",
+  });
+  assert.equal(getFalkorConfig({ FALKORDB_HOST: "db", FALKORDB_PORT: "not-a-port", FALKORDB_USERNAME: "user", FALKORDB_PASSWORD: "secret" }), null);
+});
+
+test("normalizes user scope and rejects unsafe or empty values", () => {
+  assert.equal(normalizeUserId(" team.alpha-1 "), "team.alpha-1");
+  assert.equal(normalizeUserId("user with spaces"), "default");
+  assert.equal(normalizeUserId(""), "default");
+  assert.equal(scopeEntityKey("user-1", "person_arpit_raj"), "user-1::person_arpit_raj");
+});
+
+test("writes a traceable memory with owner, source, timestamp, and user edge", async () => {
+  const graph = createMockGraph();
+  await writeMemory(graph, { memoryId: "memory-1", userId: "user-1", content: "A fact", createdAt: 123, source: "chat" });
+  assert.match(graph.calls[0].cypher, /MERGE \(u:User/);
+  assert.match(graph.calls[0].cypher, /CREATE \(m:Memory/);
+  assert.match(graph.calls[0].cypher, /HAS_MEMORY/);
+  assert.deepEqual(graph.calls[0].params, { memoryId: "memory-1", userId: "user-1", content: "A fact", createdAt: 123, source: "chat" });
+});
+
+test("writes entity ownership and idempotent provenance links", async () => {
+  const graph = createMockGraph();
+  await writeEntity(graph, { key: "person_arpit_raj", name: "Arpit Raj", type: "Person", aliases: ["Arpit"], userId: "user-1", updatedAt: 123 });
+  await linkMemoryToEntity(graph, "memory-1", "person_arpit_raj", "user-1", 123);
+  assert.match(graph.calls[0].cypher, /ownerUserId/);
+  assert.match(graph.calls[1].cypher, /MENTIONS/);
+  assert.match(graph.calls[1].cypher, /sourceMemoryId/);
+});
+
+test("writes a typed relationship with provenance and user scope", async () => {
+  const graph = createMockGraph();
+  await writeRelationship(graph, { fromKey: "person_arpit_raj", toKey: "project_graph_memory", relation: "BUILDS", memoryId: "memory-1", userId: "user-1", observedAt: 123 });
+  assert.match(graph.calls[0].cypher, /MATCH \(a:Entity/);
+  assert.match(graph.calls[0].cypher, /MERGE \(a\)-\[r:BUILDS\]->\(b\)/);
+  assert.match(graph.calls[0].cypher, /sourceUserId/);
+});
+
+test("reads only the requested user's recent memories through parameters", async () => {
+  const graph = createMockGraph([{ content: "older" }, { content: "newer" }]);
+  const result = await readRecentMemories(graph, "user-1", 10);
+  assert.deepEqual(result, ["newer", "older"]);
+  assert.deepEqual(graph.calls[0].params, { userId: "user-1", limit: 10 });
+});

@@ -6,7 +6,7 @@ _Last verified: 2026-10-12_
 
 - Repository: `awakenedarpit/FalkorDB`
 - Main baseline: `10311d5 Resolve short names to known graph entities`
-- Active work branch: `milestone-2-identity`
+- Active work branch: `milestone-3-persistence`
 - Stack: Next.js 16.4, TypeScript, React 19, Tailwind CSS 4, Gemini API, FalkorDB, `react-force-graph-2d`.
 
 ## Verified functionality
@@ -19,27 +19,29 @@ _Last verified: 2026-10-12_
 - `/graph` renders a force-directed graph with loading, empty, error, refresh, zoom-to-fit, and node detail states.
 - Chat and graph screens now share responsive navigation, accessible focus states, refined loading/empty/error states, and updated product metadata.
 - Entity extraction now supports canonical names, declared aliases, type-scoped keys, ambiguity-safe short-name resolution, and duplicate-resistant relationship writes.
+- New chat memories now receive IDs, source/timestamps, user ownership, `User-HAS_MEMORY` links, `Memory-MENTIONS-Entity` provenance, and provenance properties on typed relationships.
+- Chat, graph, and diagnostic routes now share FalkorDB configuration and graph-name handling.
+- New entity keys are scoped by normalized user ID to prevent cross-user `MERGE` collisions; legacy exact keys remain compatibility-scoped.
 
 ## Baseline findings
 
 - `npm ci` passed.
-- `npm run lint` passed with one warning: unused `persistMemoryToGraph` in `app/api/chat/route.ts`.
+- `npm run lint` passed cleanly.
 - `npm run build` passed after `GraphNode` was updated with optional force-graph runtime `x` and `y` coordinates.
 - Local smoke tests returned HTTP 200 for `/` and `/graph`; missing integration configuration returned safe HTTP 500 JSON errors from `/api/chat` and `/api/graph`.
-- No automated tests exist.
-- `npm test` passes six identity and duplicate-prevention regression tests.
+- `npm test` passes 12 identity, persistence, provenance, and duplicate-prevention regression tests.
 - Required Gemini/FalkorDB environment variables were unset, so live API checks were not run.
 - No tracked secret-like files were found.
 
 ## Known risks
 
-1. Chat reads/writes the hardcoded `userId: 'default'`; graph user isolation is not implemented.
+1. Chat defaults to `userId: 'default'`; graph user isolation is request-scoped and not authenticated.
 2. `/api/graph?userId=` trusts a caller-provided user ID.
-3. Chat hardcodes the graph name while other code reads `FALKORDB_GRAPH_NAME`.
-4. The unused persistence helper uses a different `User`/`HAS_MEMORY` schema than the active path.
-5. Retrieval uses recent raw memories rather than bounded graph traversal.
-6. Existing legacy name-only entity keys remain in the graph; new writes use type-scoped keys, but a future migration may be needed to reconcile historical collisions safely.
-7. The diagnostic memory-test route writes a fixed test node and is not production-safe.
+3. Request-level user IDs are normalized but are not authenticated identities.
+4. Retrieval uses recent raw memories rather than bounded graph traversal.
+5. Existing legacy name-only entity keys remain in the graph; new writes use type-scoped keys, but a future migration may be needed to reconcile historical collisions safely.
+6. Legacy unowned entities are visible only to the `default` compatibility scope; no automatic migration has assigned ownership.
+7. The diagnostic memory-test route is repeatable but remains a diagnostic endpoint rather than a production health-check boundary.
 8. Dependency installation reports five high-severity audit findings; no forced upgrade has been applied.
 
 ## Decisions

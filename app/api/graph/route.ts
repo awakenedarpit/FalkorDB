@@ -1,167 +1,59 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FalkorDB } from "falkordb";
+import { getFalkorConfig, normalizeUserId } from "@/lib/persistence";
 
-interface GraphRow {
-  sourceId?: string | number;
-  sourceType?: string;
-  targetId?: string | number;
-  targetType?: string;
-  content?: string;
-  relType?: string;
-}
-
-interface GraphNode {
-  id: string;
-  label: string;
-  type: string;
-}
-
-interface GraphLink {
-  source: string;
-  target: string;
-  label: string;
-}
+type GraphRow = { sourceId?: string | number; sourceType?: string; targetId?: string | number; targetType?: string; content?: string; relType?: string };
+type GraphNode = { id: string; label: string; type: string };
+type GraphLink = { source: string; target: string; label: string };
 
 export async function GET(req: NextRequest) {
   let client: Awaited<ReturnType<typeof FalkorDB.connect>> | undefined;
-
   try {
-    const { searchParams } = new URL(req.url);
-    // Chat currently stores memories with userId "default". Use that
-    // convention unless the caller explicitly asks for another user.
-    const userId = searchParams.get("userId") || "default";
-
-    const host = process.env.FALKORDB_HOST;
-    const port = Number(process.env.FALKORDB_PORT);
-    const username = process.env.FALKORDB_USERNAME;
-    const password = process.env.FALKORDB_PASSWORD;
-    const graphName = process.env.FALKORDB_GRAPH_NAME || "memory_agent";
-
-    if (!host || !Number.isFinite(port) || port <= 0 || !username || !password) {
-      return NextResponse.json(
-        { error: "FalkorDB configuration is missing or invalid." },
-        { status: 500 }
-      );
-    }
-
-    client = await FalkorDB.connect({
-      username,
-      password,
-      socket: {
-        host,
-        port,
-        tls: false,
-        connectTimeout: 10000,
-      },
-    });
-
-    const graph = client.selectGraph(graphName);
-
-    // Support both shapes used by this project:
-    // 1) chat-created flat (:Memory { userId, content, createdAt }) nodes
-    // 2) connected (:User)-[:HAS_MEMORY]->(:Memory) nodes.
-    // The first query is the active chat schema, so create visual User -> Memory
-    // links in the response without requiring database relationships to exist.
-    const result = await graph.query(
-      `
-        MATCH (m:Memory)
-        WHERE m.userId = $userId
-        RETURN $userId AS sourceId, 'User' AS sourceType,
-               toString(id(m)) AS targetId, labels(m)[0] AS targetType,
-               m.content AS content, 'HAS_MEMORY' AS relType
-        ORDER BY m.createdAt ASC
-      `,
-      { params: { userId } }
-    );
-
+    const config = getFalkorConfig(process.env);
+    if (!config) return NextResponse.json({ error: "FalkorDB configuration is missing or invalid." }, { status: 500 });
+    const userId = normalizeUserId(new URL(req.url).searchParams.get("userId"));
+    client = await FalkorDB.connect({ username: config.username, password: config.password, socket: { host: config.host, port: config.port, tls: false, connectTimeout: 10000 } });
+    const graph = client.selectGraph(config.graphName);
+    const result = await graph.query(`
+      MATCH (m:Memory)
+      WHERE m.userId = $userId
+      RETURN $userId AS sourceId, 'User' AS sourceType,
+             toString(id(m)) AS targetId, labels(m)[0] AS targetType,
+             m.content AS content, 'HAS_MEMORY' AS relType
+      ORDER BY m.createdAt ASC`, { params: { userId } });
     const nodesMap = new Map<string, GraphNode>();
     const links: GraphLink[] = [];
-
     if (result && Array.isArray(result.data)) {
       for (const row of result.data as GraphRow[]) {
         const { sourceId, sourceType, targetId, targetType, content, relType } = row;
-
-        if (sourceId !== undefined && sourceId !== null && !nodesMap.has(String(sourceId))) {
-          nodesMap.set(String(sourceId), {
-            id: String(sourceId),
-            label: `User (${sourceId})`,
-            type: sourceType || "User",
-          });
-        }
-
-        if (targetId !== undefined && targetId !== null && !nodesMap.has(String(targetId))) {
-          nodesMap.set(String(targetId), {
-            id: String(targetId),
-            label: content
-              ? content.length > 35
-                ? `${content.substring(0, 32)}...`
-                : content
-              : `Memory (${targetId})`,
-            type: targetType || "Memory",
-          });
-        }
-
-        if (sourceId !== undefined && sourceId !== null && targetId !== undefined && targetId !== null) {
-          links.push({
-            source: String(sourceId),
-            target: String(targetId),
-            label: relType || "HAS_MEMORY",
-          });
-        }
+        if (sourceId !== undefined && sourceId !== null && !nodesMap.has(String(sourceId))) nodesMap.set(String(sourceId), { id: String(sourceId), label: `User (${sourceId})`, type: sourceType || "User" });
+        if (targetId !== undefined && targetId !== null && !nodesMap.has(String(targetId))) nodesMap.set(String(targetId), { id: String(targetId), label: content ? content.length > 35 ? `${content.substring(0, 32)}...` : content : `Memory (${targetId})`, type: targetType || "Memory" });
+        if (sourceId !== undefined && sourceId !== null && targetId !== undefined && targetId !== null) links.push({ source: String(sourceId), target: String(targetId), label: relType || "HAS_MEMORY" });
       }
     }
-
-    // Add classified entities and their real relationships to the visualization.
-    const entityResult = await graph.query(
-      "MATCH (e:Entity) RETURN e.key AS key, e.name AS name, e.type AS type"
-    );
+    const entityScope = "(e.ownerUserId = $userId OR (e.ownerUserId IS NULL AND $userId = 'default'))";
+    const entityResult = await graph.query(`MATCH (e:Entity) WHERE ${entityScope} RETURN e.key AS key, e.name AS name, e.type AS type` , { params: { userId } });
     const entityIds = new Set<string>();
     if (entityResult && Array.isArray(entityResult.data)) {
       for (const raw of entityResult.data as Array<{ key?: string; name?: string; type?: string }>) {
         if (!raw.key) continue;
-        const id = `entity:${raw.key}`;
         entityIds.add(raw.key);
-        nodesMap.set(id, {
-          id,
-          label: raw.name || raw.key,
-          type: raw.type || "Other",
-        });
+        nodesMap.set(`entity:${raw.key}`, { id: `entity:${raw.key}`, label: raw.name || raw.key, type: raw.type || "Other" });
       }
     }
-
-    const relationResult = await graph.query(
-      "MATCH (a:Entity)-[r]->(b:Entity) RETURN a.key AS fromKey, b.key AS toKey, type(r) AS relation"
-    );
+    const relationResult = await graph.query(`MATCH (a:Entity)-[r]->(b:Entity) WHERE (${entityScope.replaceAll("e.", "a.")}) AND (b.ownerUserId = $userId OR (b.ownerUserId IS NULL AND $userId = 'default')) RETURN a.key AS fromKey, b.key AS toKey, type(r) AS relation`, { params: { userId } });
     if (relationResult && Array.isArray(relationResult.data)) {
       for (const relation of relationResult.data as Array<{ fromKey?: string; toKey?: string; relation?: string }>) {
-        if (!relation.fromKey || !relation.toKey) continue;
-        if (!entityIds.has(relation.fromKey) || !entityIds.has(relation.toKey)) continue;
-        links.push({
-          source: `entity:${relation.fromKey}`,
-          target: `entity:${relation.toKey}`,
-          label: relation.relation || "RELATED_TO",
-        });
+        if (!relation.fromKey || !relation.toKey || !entityIds.has(relation.fromKey) || !entityIds.has(relation.toKey)) continue;
+        links.push({ source: `entity:${relation.fromKey}`, target: `entity:${relation.toKey}`, label: relation.relation || "RELATED_TO" });
       }
     }
-
-    return NextResponse.json({
-      nodes: Array.from(nodesMap.values()),
-      links,
-    });
+    return NextResponse.json({ nodes: Array.from(nodesMap.values()), links });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error("[API/GRAPH] FalkorDB query failed:", errorMessage);
-    return NextResponse.json(
-      { error: "Failed to retrieve graph data" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Failed to retrieve graph data" }, { status: 500 });
   } finally {
-    if (client) {
-      try {
-        await client.close();
-      } catch (closeError) {
-        console.error("[API/GRAPH] FalkorDB close failed:", closeError);
-      }
-    }
+    if (client) { try { await client.close(); } catch (closeError) { console.error("[API/GRAPH] FalkorDB close failed:", closeError); } }
   }
 }

@@ -30,7 +30,7 @@ The repository currently has no automated test script. Add focused regression te
 
 - `app/page.tsx`: client chat workspace and message state.
 - `app/graph/page.tsx`: client graph explorer and node details.
-- `app/api/chat/route.ts`: Gemini request handling, raw memory persistence, entity extraction, canonical-name resolution, and typed relationship writes.
+- `app/api/chat/route.ts`: Gemini request handling, provenance-aware memory persistence, entity extraction, canonical-name resolution, and typed relationship writes.
 - `app/api/graph/route.ts`: FalkorDB graph read API for memory and entity nodes/links.
 - `app/api/memory-test/route.ts`: diagnostic graph write/read route; keep it out of production workflows.
 - `app/globals.css`: global visual tokens and base styles.
@@ -57,6 +57,7 @@ Each completed milestone gets a dedicated branch, focused commit(s), documentati
 - Gemini/FalkorDB smoke tests were not run because required environment variables were unset.
 - Local page smoke tests: `/` and `/graph` returned HTTP 200; missing integration configuration returned safe HTTP 500 JSON errors.
 - `npm test`: passed six identity and duplicate-prevention regression tests.
+- `npm test` now covers 12 identity, persistence, provenance, and duplicate-prevention regression tests.
 - No tracked secret-like files were found.
 
 See `MEMORY.md`, `TRD.md`, and `CHANGELOG.md` for the maintained project record.

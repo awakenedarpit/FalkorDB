@@ -33,6 +33,16 @@ All notable project changes are recorded here.
 - Added six repeatable Node regression tests covering identity matching and duplicate prevention.
 - Validation passed: `npm test`, `npm run lint`, and `npm run build`.
 
+### Milestone 3 — Graph persistence quality and provenance
+
+- Added shared FalkorDB configuration, graph-name, and user-scope normalization helpers.
+- Added traceable memory IDs, source/timestamp metadata, `User-HAS_MEMORY` ownership links, and `Memory-MENTIONS-Entity` provenance links.
+- Added entity ownership and provenance properties to typed relationships.
+- Scoped new entity keys by user ID to prevent cross-user `MERGE` collisions while preserving legacy compatibility keys.
+- Updated chat, graph, and diagnostic routes to use the shared configuration contract and preserve legacy default-scope data without destructive migration.
+- Added controlled graph-query integration tests for configuration, scoping, memory writes, entity ownership, provenance links, typed relationships, and retrieval parameters.
+- Validation passed: 12 tests, lint, and production build.
+
 ### Planned next
 
 - Milestone 2: robust identity resolution, aliases, and duplicate prevention.
