@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  correctMemory,
+  forgetMemory,
   getFalkorConfig,
   linkMemoryToEntity,
   normalizeUserId,
@@ -87,4 +89,24 @@ test("retrieves bounded graph evidence for one user and groups duplicate memory 
   assert.match(graph.calls[0].cypher, /MATCH \(m:Memory \{userId: \$userId\}\)/);
   assert.match(graph.calls[0].cypher, /OPTIONAL MATCH \(e\)-\[r\]-\(related:Entity\)/);
   assert.deepEqual(graph.calls[0].params, { userId: "user-1", limit: 2 });
+});
+
+test("corrects one active memory while preserving a revision node", async () => {
+  const graph = createMockGraph([{ memoryId: "memory-1" }]);
+  const changed = await correctMemory(graph, { memoryId: "memory-1", userId: "user-1", content: "The corrected fact", correctedAt: 456 });
+  assert.equal(changed, true);
+  assert.match(graph.calls[0].cypher, /CREATE \(revision:MemoryRevision/);
+  assert.match(graph.calls[0].cypher, /previousContent: m.content/);
+  assert.match(graph.calls[0].cypher, /HAS_REVISION/);
+  assert.deepEqual(graph.calls[0].params, { memoryId: "memory-1", userId: "user-1", content: "The corrected fact", correctedAt: 456 });
+});
+
+test("soft-forgets an exact active memory without deleting graph data", async () => {
+  const graph = createMockGraph([{ memoryId: "memory-1" }]);
+  const forgotten = await forgetMemory(graph, "memory-1", "user-1", 789);
+  assert.equal(forgotten, true);
+  assert.match(graph.calls[0].cypher, /SET m.deleted = true/);
+  assert.doesNotMatch(graph.calls[0].cypher, /DELETE|DETACH DELETE/);
+  assert.match(graph.calls[0].cypher, /userId: \$userId/);
+  assert.deepEqual(graph.calls[0].params, { memoryId: "memory-1", userId: "user-1", forgottenAt: 789 });
 });

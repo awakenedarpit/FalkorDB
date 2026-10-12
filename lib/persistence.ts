@@ -49,6 +49,13 @@ export type GraphEvidence = {
   relationships: string[];
 };
 
+export type MemoryCorrection = {
+  memoryId: string;
+  userId: string;
+  content: string;
+  correctedAt: number;
+};
+
 export function getFalkorConfig(
   env: Record<string, string | undefined>,
 ): FalkorConfig | null {
@@ -79,7 +86,7 @@ export function scopeEntityKey(userId: string, key: string): string {
 
 export async function readRecentMemories(graph: GraphQueryRunner, userId: string, limit = 10): Promise<string[]> {
   const result = await graph.query(
-    "MATCH (m:Memory) WHERE m.userId = $userId RETURN m.content AS content ORDER BY m.createdAt DESC LIMIT $limit",
+    "MATCH (m:Memory) WHERE m.userId = $userId AND coalesce(m.deleted, false) = false RETURN m.content AS content ORDER BY m.createdAt DESC LIMIT $limit",
     { params: { userId, limit } },
   );
   return (Array.isArray(result.data) ? result.data : [])
@@ -95,9 +102,11 @@ function stringValue(value: unknown): string | undefined {
 export async function readGraphEvidence(graph: GraphQueryRunner, userId: string, limit = 12): Promise<GraphEvidence[]> {
   const result = await graph.query(
     `MATCH (m:Memory {userId: $userId})
+     WHERE coalesce(m.deleted, false) = false
      OPTIONAL MATCH (m)-[:MENTIONS]->(e:Entity)
      OPTIONAL MATCH (e)-[r]-(related:Entity)
-     WHERE (related IS NULL OR related.ownerUserId = $userId OR (related.ownerUserId IS NULL AND $userId = 'default'))
+     WHERE coalesce(r.deleted, false) = false
+       AND (related IS NULL OR related.ownerUserId = $userId OR (related.ownerUserId IS NULL AND $userId = 'default'))
      RETURN m.id AS memoryId, m.content AS content, m.createdAt AS createdAt,
        collect(DISTINCT e.name) AS entities,
        collect(DISTINCT CASE WHEN related IS NULL THEN NULL ELSE e.name + ' ' + type(r) + ' ' + related.name END) AS relationships
@@ -128,6 +137,34 @@ export async function readGraphEvidence(graph: GraphQueryRunner, userId: string,
     });
   }
   return Array.from(grouped.values()).sort((a, b) => a.createdAt - b.createdAt).slice(-limit);
+}
+
+export async function correctMemory(graph: GraphQueryRunner, correction: MemoryCorrection): Promise<boolean> {
+  const result = await graph.query(
+    `MATCH (m:Memory {id: $memoryId, userId: $userId})
+     WHERE coalesce(m.deleted, false) = false
+     CREATE (revision:MemoryRevision {id: $memoryId, userId: $userId, previousContent: m.content, createdAt: $correctedAt})
+     CREATE (m)-[:HAS_REVISION]->(revision)
+     SET m.content = $content, m.updatedAt = $correctedAt, m.correctedAt = $correctedAt
+     RETURN m.id AS memoryId`,
+    { params: correction },
+  );
+  return Array.isArray(result.data) && result.data.length > 0;
+}
+
+export async function forgetMemory(graph: GraphQueryRunner, memoryId: string, userId: string, forgottenAt: number): Promise<boolean> {
+  const result = await graph.query(
+    `MATCH (m:Memory {id: $memoryId, userId: $userId})
+     WHERE coalesce(m.deleted, false) = false
+     SET m.deleted = true, m.deletedAt = $forgottenAt, m.updatedAt = $forgottenAt
+     WITH m
+     OPTIONAL MATCH (a:Entity)-[r]->(b:Entity)
+     WHERE r.sourceMemoryId = $memoryId AND r.sourceUserId = $userId
+     SET r.deleted = true, r.deletedAt = $forgottenAt
+     RETURN m.id AS memoryId`,
+    { params: { memoryId, userId, forgottenAt } },
+  );
+  return Array.isArray(result.data) && result.data.length > 0;
 }
 
 export async function writeMemory(graph: GraphQueryRunner, memory: MemoryWrite): Promise<void> {

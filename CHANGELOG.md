@@ -50,6 +50,13 @@ All notable project changes are recorded here.
 - Preserved the existing chat response fields and added `graphEvidenceUsed` for observability.
 - Added regression coverage for query scoping, bounded limits, duplicate grouping, ordering, and relationship evidence.
 
+### Milestone 5 — Memory correction and forgetting
+
+- Added `POST /api/memory` with exact `memoryId` targeting for correction and forgetting.
+- Corrections update the active memory while preserving the prior content in a `MemoryRevision` node.
+- Forgetting uses reversible soft deletion and hides source relationships from retrieval and graph exploration without deleting graph data.
+- Forgetting requires `confirmed: true` and rejects missing, stale, or cross-user memory IDs.
+
 ### Planned next
 
 - Milestone 5: safe correction and forgetting with ambiguity checks and non-destructive fact updates.
