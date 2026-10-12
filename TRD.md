@@ -14,9 +14,9 @@ The application uses the Next.js App Router. Gemini performs response generation
 
 ### `POST /api/chat`
 
-Request: `{ "message": string }`
+Request: `{ "message": string, "userId?: string" }`
 
-Success includes `{ reply, memoriesUsed, memorySaved, entitiesCreated, relationshipsCreated }`. Missing integration configuration returns an error response. The current implementation uses the hardcoded `default` user scope and the `memory_agent` graph in its active path; this is a known risk to resolve in a later milestone.
+Success includes `{ reply, memoriesUsed, memorySaved, memoryId, userId, entitiesCreated, relationshipsCreated }`. User IDs are normalized and scoped consistently across reads and writes; this is request-level scoping, not authentication.
 
 ### `GET /api/graph`
 
@@ -28,13 +28,16 @@ Diagnostic-only write/read check. It currently writes a fixed `MemoryTest` node 
 
 ## Graph schema (current)
 
-- `(:Memory { userId, content, createdAt })`
-- `(:Entity { key, name, type, aliases, updatedAt })`
-- New entity keys are type-scoped slugs such as `person_arpit_raj`; existing legacy keys remain valid and are reused when exact identity matches.
+- `(:User { id })-[:HAS_MEMORY]->(:Memory { id, userId, content, source, createdAt, updatedAt })`
+- `(:Memory)-[:MENTIONS { observedAt, sourceMemoryId, sourceUserId }]->(:Entity { key, name, type, aliases, ownerUserId, updatedAt })`
+- Typed entity relationships carry `updatedAt`, `sourceMemoryId`, and `sourceUserId` provenance properties.
+- New entity keys are user-scoped, type-scoped slugs such as `user-1::person_arpit_raj`; existing legacy keys remain valid and are reused when an exact compatibility-scope identity matches.
 - Domain labels: `Person`, `Project`, `Team`, `Skill`, `Organization`, `Preference`, `Place`, `Other`.
 - Typed edges currently allow: `BUILDS`, `MEMBER_OF`, `TEAMMATE_OF`, `KNOWS`, `WORKS_ON`, `LIKES`, `USES`, `RELATED_TO`, `HANDLES`, `LEADS`, `CREATED`, `PART_OF`, `STUDIES`, `LOCATED_IN`, `HAS_SKILL`, `COLLABORATES_WITH`.
 
 Future schema work should add provenance and aliases additively, preserve existing labels/edges, and avoid destructive migrations.
+
+Legacy flat `Memory` nodes and unowned `Entity` nodes are still read for the `default` scope. New writes use IDs, ownership, source metadata, and provenance links. No automatic migration or deletion is performed.
 
 ## Identity resolution rules
 
@@ -52,5 +55,5 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 
 - Static: lint, TypeScript, production build.
 - Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, allow-list validation, and safe missing-config errors. Run with `npm test`.
-- Integration: chat persistence, graph retrieval, correction, forgetting, and user isolation against a controlled FalkorDB instance.
+- Integration: persistence helpers are tested against a controlled in-memory graph-query mock; live chat persistence and graph retrieval still require a configured FalkorDB instance. Correction, forgetting, and authenticated user isolation remain later milestones.
 - UI smoke: responsive chat send/error/loading and graph loading/empty/error/node-detail flows.

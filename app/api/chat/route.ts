@@ -1,37 +1,26 @@
 import { NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { FalkorDB } from "falkordb";
-import {
-  dedupeExtractedEntities,
-  dedupeRelationships,
-  resolveEntityIdentity,
-} from "@/lib/identity";
+import { randomUUID } from "node:crypto";
+import { dedupeExtractedEntities, dedupeRelationships, resolveEntityIdentity } from "@/lib/identity";
 import type { EntityType, KnownEntity } from "@/lib/identity";
+import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
 
-const allowedTypes = new Set<EntityType>([
-  "Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other",
-]);
-const allowedRelations = new Set([
-  "BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES", "USES", "RELATED_TO",
-  "HANDLES", "LEADS", "CREATED", "PART_OF", "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH",
-]);
-
+const allowedTypes = new Set<EntityType>(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
+const allowedRelations = new Set(["BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES", "USES", "RELATED_TO", "HANDLES", "LEADS", "CREATED", "PART_OF", "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH"]);
 type ExtractedRelationInput = { from?: unknown; relation?: unknown; to?: unknown };
-
 type EntityReference = { key: string; name: string; type: EntityType };
 
 function relationType(value: string): string {
   const normalized = value.toUpperCase().replace(/[^A-Z0-9_]/g, "_").slice(0, 40);
   return allowedRelations.has(normalized) ? normalized : "RELATED_TO";
 }
-
 function addReference(map: Map<string, EntityReference[]>, name: string, reference: EntityReference) {
   const key = name.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   if (!key) return;
   const current = map.get(key) || [];
   if (!current.some((item) => item.key === reference.key)) map.set(key, [...current, reference]);
 }
-
 function referenceFor(map: Map<string, EntityReference[]>, name: string): EntityReference | undefined {
   const key = name.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ").trim();
   const matches = map.get(key) || [];
@@ -40,45 +29,29 @@ function referenceFor(map: Map<string, EntityReference[]>, name: string): Entity
 
 export async function POST(request: Request) {
   const apiKey = process.env.GEMINI_API_KEY;
-  const host = process.env.FALKORDB_HOST;
-  const port = Number(process.env.FALKORDB_PORT);
-  const username = process.env.FALKORDB_USERNAME;
-  const password = process.env.FALKORDB_PASSWORD;
-  const graphName = process.env.FALKORDB_GRAPH_NAME || "memory_agent";
-  const userId = "default";
-
+  const config = getFalkorConfig(process.env);
   if (!apiKey) return NextResponse.json({ error: "GEMINI_API_KEY is missing from .env.local." }, { status: 500 });
-  if (!host || !port || !username || !password) return NextResponse.json({ error: "FalkorDB configuration is missing from .env.local." }, { status: 500 });
-
+  if (!config) return NextResponse.json({ error: "FalkorDB configuration is missing from .env.local." }, { status: 500 });
   let db: Awaited<ReturnType<typeof FalkorDB.connect>> | undefined;
   try {
     const body = await request.json();
     if (typeof body.message !== "string" || !body.message.trim()) return NextResponse.json({ error: "Please enter a message." }, { status: 400 });
     const message = body.message.trim();
-
-    db = await FalkorDB.connect({ username, password, socket: { host, port, tls: false, connectTimeout: 10000 } });
-    const graph = db.selectGraph(graphName);
-    const previousResult = await graph.query(
-      "MATCH (m:Memory) WHERE m.userId = $userId RETURN m.content AS content ORDER BY m.createdAt DESC LIMIT 10",
-      { params: { userId } },
-    );
-    const previousMemories = (Array.isArray(previousResult.data) ? previousResult.data : [])
-      .map((row: unknown) => row && typeof row === "object" && typeof (row as { content?: unknown }).content === "string" ? (row as { content: string }).content : "")
-      .filter(Boolean)
-      .reverse();
-
-    await graph.query(
-      "CREATE (:Memory {userId: $userId, content: $content, createdAt: $createdAt})",
-      { params: { userId, content: message, createdAt: Date.now() } },
-    );
+    const userId = normalizeUserId(body.userId);
+    const memoryId = randomUUID();
+    const capturedAt = Date.now();
+    db = await FalkorDB.connect({ username: config.username, password: config.password, socket: { host: config.host, port: config.port, tls: false, connectTimeout: 10000 } });
+    const graph = db.selectGraph(config.graphName);
+    const previousMemories = await readRecentMemories(graph, userId);
+    await writeMemory(graph, { memoryId, userId, content: message, createdAt: capturedAt, source: "chat" });
 
     const ai = new GoogleGenAI({ apiKey });
     let processedEntities: EntityReference[] = [];
     let processedRelations: Array<{ from: string; relation: string; to: string }> = [];
-
     try {
       const knownResult = await graph.query(
-        "MATCH (e:Entity) RETURN e.key AS key, e.name AS name, e.type AS type, e.aliases AS aliases LIMIT 500",
+        "MATCH (e:Entity) WHERE e.ownerUserId = $userId OR (e.ownerUserId IS NULL AND $userId = 'default') RETURN e.key AS key, e.name AS name, e.type AS type, e.aliases AS aliases LIMIT 500",
+        { params: { userId } },
       );
       const knownEntities: KnownEntity[] = (Array.isArray(knownResult.data) ? knownResult.data : [])
         .map((row: unknown): KnownEntity | null => {
@@ -89,10 +62,7 @@ export async function POST(request: Request) {
           return { key: item.key, name: item.name, type: item.type as EntityType, aliases };
         })
         .filter((item): item is KnownEntity => item !== null);
-      const knownEntityContext = knownEntities.length
-        ? knownEntities.map((entity) => `- ${entity.type}: ${entity.name}${entity.aliases?.length ? ` (aliases: ${entity.aliases.join(", ")})` : ""}`).join("\n")
-        : "No known entities yet.";
-
+      const knownEntityContext = knownEntities.length ? knownEntities.map((entity) => `- ${entity.type}: ${entity.name}${entity.aliases?.length ? ` (aliases: ${entity.aliases.join(", ")})` : ""}`).join("\n") : "No known entities yet.";
       const extraction = await ai.models.generateContent({
         model: "gemini-flash-lite-latest",
         contents: [
@@ -108,23 +78,15 @@ export async function POST(request: Request) {
       const extracted = dedupeExtractedEntities((Array.isArray(parsed.entities) ? parsed.entities : [])
         .filter((entity): entity is { name: string; type: EntityType; aliases?: string[] } => typeof entity.name === "string" && Boolean(entity.name.trim()) && typeof entity.type === "string" && allowedTypes.has(entity.type as EntityType))
         .map((entity) => ({ name: entity.name.trim().slice(0, 120), type: entity.type, aliases: Array.isArray(entity.aliases) ? entity.aliases.filter((alias): alias is string => typeof alias === "string").map((alias) => alias.trim().slice(0, 80)).filter(Boolean).slice(0, 10) : [] })));
-
       const entitiesByKey = new Map<string, EntityReference>();
       const skippedAmbiguous = new Set<string>();
       for (const entity of extracted) {
         const match = resolveEntityIdentity(entity.name, entity.type, knownEntities);
-        if (match.status === "ambiguous") {
-          skippedAmbiguous.add(entity.name);
-          continue;
-        }
-        const reference: EntityReference = match.status === "new"
-          ? { key: match.key, name: entity.name, type: entity.type }
-          : { key: match.entity.key, name: match.entity.name, type: match.entity.type };
-        const existing = entitiesByKey.get(reference.key);
-        entitiesByKey.set(reference.key, existing || reference);
+        if (match.status === "ambiguous") { skippedAmbiguous.add(entity.name); continue; }
+        const reference: EntityReference = match.status === "new" ? { key: scopeEntityKey(userId, match.key), name: entity.name, type: entity.type } : { key: match.entity.key, name: match.entity.name, type: match.entity.type };
+        entitiesByKey.set(reference.key, entitiesByKey.get(reference.key) || reference);
       }
       processedEntities = Array.from(entitiesByKey.values());
-
       const references = new Map<string, EntityReference[]>();
       for (const entity of knownEntities) {
         const reference = { key: entity.key, name: entity.name, type: entity.type };
@@ -134,13 +96,12 @@ export async function POST(request: Request) {
       for (const entity of extracted) {
         const match = resolveEntityIdentity(entity.name, entity.type, knownEntities);
         if (match.status === "ambiguous" || skippedAmbiguous.has(entity.name)) continue;
-        const reference = entitiesByKey.get(match.status === "new" ? match.key : match.entity.key);
+        const reference = entitiesByKey.get(match.status === "new" ? scopeEntityKey(userId, match.key) : match.entity.key);
         if (!reference) continue;
         addReference(references, entity.name, reference);
         for (const alias of entity.aliases || []) addReference(references, alias, reference);
         addReference(references, reference.name, reference);
       }
-
       const relationInputs = dedupeRelationships((Array.isArray(parsed.relationships) ? parsed.relationships : [])
         .filter((relation): relation is { from: string; relation: string; to: string } => typeof relation.from === "string" && typeof relation.to === "string" && typeof relation.relation === "string")
         .map((relation) => ({ from: relation.from.trim(), relation: relationType(relation.relation), to: relation.to.trim() })));
@@ -154,7 +115,6 @@ export async function POST(request: Request) {
         relationshipKeys.add(key);
         return [{ from: from.key, relation: relation.relation, to: to.key }];
       });
-
       for (const entity of processedEntities) {
         const input = extracted.find((candidate) => {
           const match = resolveEntityIdentity(candidate.name, candidate.type, knownEntities);
@@ -162,45 +122,23 @@ export async function POST(request: Request) {
         });
         const known = knownEntities.find((candidate) => candidate.key === entity.key);
         const aliases = Array.from(new Set([...(known?.aliases || []), ...(input?.aliases || [])].filter((alias) => alias.toLocaleLowerCase() !== entity.name.toLocaleLowerCase())));
-        const entityLabel = entity.type;
-        await graph.query(
-          `MERGE (e:Entity {key: $key}) SET e.name = $name, e.type = $type, e.aliases = $aliases, e.updatedAt = timestamp() SET e:${entityLabel}`,
-          { params: { key: entity.key, name: entity.name, type: entity.type, aliases } },
-        );
+        await writeEntity(graph, { key: entity.key, name: entity.name, type: entity.type, aliases, userId, updatedAt: capturedAt });
+        await linkMemoryToEntity(graph, memoryId, entity.key, userId, capturedAt);
       }
-      for (const relation of processedRelations) {
-        await graph.query(
-          `MATCH (a:Entity {key: $fromKey}), (b:Entity {key: $toKey}) MERGE (a)-[r:${relation.relation}]->(b) SET r.updatedAt = timestamp()`,
-          { params: { fromKey: relation.from, toKey: relation.to } },
-        );
-      }
+      for (const relation of processedRelations) await writeRelationship(graph, { fromKey: relation.from, toKey: relation.to, relation: relation.relation, memoryId, userId, observedAt: capturedAt });
     } catch (extractionError) {
       console.error("[GRAPH MEMORY] Structured extraction failed; raw memory is still saved:", extractionError);
     }
 
-    const prompt = [
-      "You are a helpful Graph Memory Agent.",
-      "Use the saved memories below when they are relevant to the user's message.",
-      "Do not claim to remember information that is not present in the memories or current conversation.",
-      "If the user asks what you remember, summarize the relevant saved memories.",
-      "", "Previously saved memories (oldest first):",
-      previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.",
-      "", "Current user message:", message,
-    ].join("\n");
+    const prompt = ["You are a helpful Graph Memory Agent.", "Use the saved memories below when they are relevant to the user's message.", "Do not claim to remember information that is not present in the memories or current conversation.", "If the user asks what you remember, summarize the relevant saved memories.", "", "Previously saved memories (oldest first):", previousMemories.length ? previousMemories.map((item, index) => `${index + 1}. ${item}`).join("\n") : "No previous memories have been saved yet.", "", "Current user message:", message].join("\n");
     let result;
-    try {
-      result = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt });
-    } catch (error) {
-      console.error("Primary Gemini model failed:", error);
-      result = await ai.models.generateContent({ model: "gemini-flash-lite-latest", contents: prompt });
-    }
-    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, memorySaved: true, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
+    try { result = await ai.models.generateContent({ model: "gemini-3.5-flash", contents: prompt }); }
+    catch (error) { console.error("Primary Gemini model failed:", error); result = await ai.models.generateContent({ model: "gemini-flash-lite-latest", contents: prompt }); }
+    return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, memorySaved: true, memoryId, userId, entitiesCreated: processedEntities.length, relationshipsCreated: processedRelations.length });
   } catch (error) {
     console.error("Graph Memory chat failed:", error);
     return NextResponse.json({ error: "The chat request failed. Check the VS Code terminal for details." }, { status: 500 });
   } finally {
-    if (db) {
-      try { await db.close(); } catch (closeError) { console.error("FalkorDB close failed:", closeError); }
-    }
+    if (db) { try { await db.close(); } catch (closeError) { console.error("FalkorDB close failed:", closeError); } }
   }
 }
