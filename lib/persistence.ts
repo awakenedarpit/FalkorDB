@@ -20,7 +20,7 @@ export type MemoryWrite = {
   userId: string;
   content: string;
   createdAt: number;
-  source: "chat" | "diagnostic";
+  source: "chat" | "document" | "diagnostic";
 };
 
 export type EntityWrite = {

@@ -81,6 +81,17 @@ All notable project changes are recorded here.
 - Validation passed: 24 tests, lint, production build, and `git diff --check`.
 - Live Gemini/FalkorDB smoke tests remain blocked because credentials are not configured in this environment.
 
+### Stage 2 — Validated document and image uploads
+
+- Added an in-memory multipart upload pipeline with byte-bounded request streaming, five-file/20 MB total/10 MB per-file limits, normalized MIME checks, signatures, malformed-file checks, and server-only Gemini vision extraction.
+- Added PDF text extraction with page references and scanned-PDF OCR; DOCX headings/paragraphs/tables; PPTX headings/text/tables in presentation order with slide references; Markdown headings/tables; quoted CSV tables; and PNG/JPEG/WEBP decoding plus Gemini image descriptions/OCR.
+- Added ZIP expansion/entry caps, a 16-megapixel image decoding limit, 20,000 extracted characters per file, no-store upload responses, and client previews, progress/errors, attachment removal, and chat submission.
+- Uploaded bytes remain in memory; only extracted content is written as a `document` memory when the user sends it. Attachment contents are explicitly treated as untrusted source data in Gemini prompts.
+- Replaced Mammoth with direct OOXML parsing, avoiding the vulnerable legacy parser dependency.
+- Focused upload tests cover supported formats, malformed and spoofed inputs, limits, slide/page references, scanned-PDF and image vision hooks, multipart size-bounding, and prompt-injection framing.
+- Validation passed after a clean `npm ci`: 35 tests, lint, production build, and `git diff --check`.
+- `npm audit` reports five pre-existing high-severity findings in the lint dependency tree; the suggested fix is a major-version downgrade, so it was not applied. Live Gemini/FalkorDB tests still require credentials.
+
 ### Planned next
 
 - Configure valid Gemini and FalkorDB credentials in the target runtime and run non-destructive live smoke tests.
