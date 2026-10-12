@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { FormEvent, useState } from "react";
 
-type Message = { role: "user" | "assistant"; content: string };
+type Message = { role: "user" | "assistant"; content: string; memoryId?: string };
 
 const starterPrompts = [
   "Remember that my hackathon project uses FalkorDB.",
@@ -26,10 +26,14 @@ export default function Home() {
     setInput("");
     setLoading(true);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text }) });
+      const conversation = messages.slice(-8).map(({ role, content, memoryId }) => ({ role, content, ...(memoryId ? { memoryId } : {}) }));
+      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, conversation }) });
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The AI request failed.");
-      setMessages((previous) => [...previous, { role: "assistant", content: data.reply || "Gemini returned an empty response." }]);
+      setMessages((previous) => {
+        const withMemoryId = previous.map((item, index) => index === previous.length - 1 && item.role === "user" && typeof data.memoryId === "string" ? { ...item, memoryId: data.memoryId } : item);
+        return [...withMemoryId, { role: "assistant", content: data.reply || "Gemini returned an empty response." }];
+      });
     } catch (error) {
       setMessages((previous) => [...previous, { role: "assistant", content: error instanceof Error ? `I couldn’t reach the memory service: ${error.message}` : "I couldn’t reach the memory service. Please try again." }]);
     } finally {
