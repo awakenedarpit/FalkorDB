@@ -26,6 +26,14 @@ Optional query: `userId`. Returns `{ nodes: [{ id, label, type }], links: [{ sou
 
 Diagnostic-only write/read check. It currently writes a fixed `MemoryTest` node and should be guarded or removed from production use.
 
+### `POST /api/memory`
+
+Request: `{ "action": "correct" | "forget", "memoryId": string, "userId?: string", "content?: string, "confirmed?: true }`.
+
+- `correct` requires a non-empty replacement `content` and preserves the previous value in a `MemoryRevision` node.
+- `forget` requires `confirmed: true`, marks the exact active memory and source relationships as deleted, and never executes `DELETE` or `DETACH DELETE`.
+- Both actions require an exact memory ID and normalized user scope; missing or cross-user targets return `404`.
+
 ## Graph schema (current)
 
 - `(:User { id })-[:HAS_MEMORY]->(:Memory { id, userId, content, source, createdAt, updatedAt })`
@@ -34,6 +42,7 @@ Diagnostic-only write/read check. It currently writes a fixed `MemoryTest` node 
 - New entity keys are user-scoped, type-scoped slugs such as `user-1::person_arpit_raj`; existing legacy keys remain valid and are reused when an exact compatibility-scope identity matches.
 - Domain labels: `Person`, `Project`, `Team`, `Skill`, `Organization`, `Preference`, `Place`, `Other`.
 - Typed edges currently allow: `BUILDS`, `MEMBER_OF`, `TEAMMATE_OF`, `KNOWS`, `WORKS_ON`, `LIKES`, `USES`, `RELATED_TO`, `HANDLES`, `LEADS`, `CREATED`, `PART_OF`, `STUDIES`, `LOCATED_IN`, `HAS_SKILL`, `COLLABORATES_WITH`.
+- Forgotten memories and source relationships use `deleted`/`deletedAt` markers and remain physically present for reversible recovery and audit.
 
 Future schema work should add provenance and aliases additively, preserve existing labels/edges, and avoid destructive migrations.
 
@@ -50,6 +59,7 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 - Allow-list all interpolated labels and relationship types.
 - Replace caller-supplied user IDs with an explicit authenticated identity before claiming isolation.
 - Do not expose another user's memory through graph or retrieval APIs.
+- Do not accept natural-language or partial targets for correction/forgetting; require an exact memory ID and explicit confirmation for forgetting.
 
 ## Bounded retrieval
 
@@ -61,6 +71,6 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 ## Testing strategy
 
 - Static: lint, TypeScript, production build.
-- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, bounded graph evidence grouping, allow-list validation, and safe missing-config errors. Run with `npm test`.
+- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, bounded graph evidence grouping, soft correction/forgetting, allow-list validation, and safe missing-config errors. Run with `npm test`.
 - Integration: persistence helpers are tested against a controlled in-memory graph-query mock; live chat persistence and graph retrieval still require a configured FalkorDB instance. Correction, forgetting, and authenticated user isolation remain later milestones.
 - UI smoke: responsive chat send/error/loading and graph loading/empty/error/node-detail flows.

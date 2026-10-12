@@ -23,6 +23,7 @@ _Last verified: 2026-10-12_
 - Chat, graph, and diagnostic routes now share FalkorDB configuration and graph-name handling.
 - New entity keys are scoped by normalized user ID to prevent cross-user `MERGE` collisions; legacy exact keys remain compatibility-scoped.
 - Chat retrieval now queries bounded one-hop graph evidence for the requested user, groups duplicate memory rows, and includes connected entities and relationships in the Gemini prompt.
+- Memory correction and forgetting now use exact IDs, preserve correction revisions, and soft-delete forgotten memories and source relationships without destructive Cypher deletes.
 
 ## Baseline findings
 
@@ -40,6 +41,7 @@ _Last verified: 2026-10-12_
 2. `/api/graph?userId=` trusts a caller-provided user ID.
 3. Request-level user IDs are normalized but are not authenticated identities.
 4. Retrieval is bounded to recent user-scoped memory nodes and one-hop entity relationships; semantic ranking and multi-hop traversal remain future improvements.
+5. The correction/forgetting endpoint still uses request-level user IDs rather than authenticated identities.
 5. Existing legacy name-only entity keys remain in the graph; new writes use type-scoped keys, but a future migration may be needed to reconcile historical collisions safely.
 6. Legacy unowned entities are visible only to the `default` compatibility scope; no automatic migration has assigned ownership.
 7. The diagnostic memory-test route is repeatable but remains a diagnostic endpoint rather than a production health-check boundary.
