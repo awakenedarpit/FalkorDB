@@ -111,6 +111,39 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    // Add classified entities and their real relationships to the visualization.
+    const entityResult = await graph.query(
+      "MATCH (e:Entity) RETURN e.key AS key, e.name AS name, e.type AS type"
+    );
+    const entityIds = new Set<string>();
+    if (entityResult && Array.isArray(entityResult.data)) {
+      for (const raw of entityResult.data as Array<{ key?: string; name?: string; type?: string }>) {
+        if (!raw.key) continue;
+        const id = `entity:${raw.key}`;
+        entityIds.add(raw.key);
+        nodesMap.set(id, {
+          id,
+          label: raw.name || raw.key,
+          type: raw.type || "Other",
+        });
+      }
+    }
+
+    const relationResult = await graph.query(
+      "MATCH (a:Entity)-[r:RELATION]->(b:Entity) RETURN a.key AS fromKey, b.key AS toKey, r.type AS relation"
+    );
+    if (relationResult && Array.isArray(relationResult.data)) {
+      for (const relation of relationResult.data as Array<{ fromKey?: string; toKey?: string; relation?: string }>) {
+        if (!relation.fromKey || !relation.toKey) continue;
+        if (!entityIds.has(relation.fromKey) || !entityIds.has(relation.toKey)) continue;
+        links.push({
+          source: `entity:${relation.fromKey}`,
+          target: `entity:${relation.toKey}`,
+          label: relation.relation || "RELATED_TO",
+        });
+      }
+    }
+
     return NextResponse.json({
       nodes: Array.from(nodesMap.values()),
       links,
