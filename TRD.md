@@ -51,9 +51,16 @@ Identity matching normalizes Unicode text, punctuation, and case. An exact canon
 - Replace caller-supplied user IDs with an explicit authenticated identity before claiming isolation.
 - Do not expose another user's memory through graph or retrieval APIs.
 
+## Bounded retrieval
+
+- Chat retrieval reads at most the requested evidence limit for the normalized user scope.
+- Each evidence row starts at a user-owned `Memory`, follows `MENTIONS` to an `Entity`, and traverses at most one entity relationship hop.
+- Related entities are restricted to the same owner scope, with unowned legacy nodes available only to the `default` compatibility scope.
+- Duplicate rows for one memory are grouped before the evidence is sent to Gemini; entity and relationship labels are returned as evidence text, not executable instructions.
+
 ## Testing strategy
 
 - Static: lint, TypeScript, production build.
-- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, allow-list validation, and safe missing-config errors. Run with `npm test`.
+- Unit/regression: normalization, exact and alias matching, unique/ambiguous short-name matching, type-scoped keys, duplicate entity/edge prevention, bounded graph evidence grouping, allow-list validation, and safe missing-config errors. Run with `npm test`.
 - Integration: persistence helpers are tested against a controlled in-memory graph-query mock; live chat persistence and graph retrieval still require a configured FalkorDB instance. Correction, forgetting, and authenticated user isolation remain later milestones.
 - UI smoke: responsive chat send/error/loading and graph loading/empty/error/node-detail flows.
