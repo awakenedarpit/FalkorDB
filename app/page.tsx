@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Message = { role: "user" | "assistant"; content: string; memoryId?: string };
 type ChatSession = { id: string; title: string; createdAt: number; updatedAt: number; messages: Message[] };
@@ -31,6 +31,73 @@ function formatChatDate(timestamp: number): string {
   const today = new Date();
   if (date.toDateString() === today.toDateString()) return "Today";
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function renderInlineMarkdown(text: string) {
+  const normalized = text.replace(/\\([\\\`*_{}\[\]()#+.!>|~-])/g, "$1");
+  const tokens = normalized.split(/(\*\*[^*]+\*\*|__[^_]+__|\*[^*]+\*|_[^_]+_|\`[^\`]+\`|\[[^\]]+\]\(https?:\/\/[^)\s]+\))/g).filter(Boolean);
+  return tokens.map((token, index) => {
+    if ((token.startsWith("**") && token.endsWith("**")) || (token.startsWith("__") && token.endsWith("__"))) return <strong key={index}>{token.slice(2, -2)}</strong>;
+    if ((token.startsWith("*") && token.endsWith("*")) || (token.startsWith("_") && token.endsWith("_"))) return <em key={index}>{token.slice(1, -1)}</em>;
+    if (token.startsWith("\`") && token.endsWith("\`")) return <code className="markdown-inline-code" key={index}>{token.slice(1, -1)}</code>;
+    const link = token.match(/^\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)$/);
+    if (link) return <a key={index} href={link[2]} target="_blank" rel="noreferrer noopener">{link[1]}</a>;
+    return <span key={index}>{token}</span>;
+  });
+}
+
+function renderMarkdown(content: string) {
+  const normalized = content.replace(/\r\n?/g, "\n").replace(/\\([\\\`*_{}\[\]()#+.!>|~-])/g, "$1").trim();
+  if (!normalized) return null;
+  const lines = normalized.split("\n");
+  const blocks: ReactNode[] = [];
+  let paragraph: string[] = [];
+  let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
+  let codeLines: string[] | null = null;
+  const flushParagraph = () => {
+    if (paragraph.length) {
+      blocks.push(<p key={blocks.length}>{paragraph.map((line, index) => <span key={index}>{index > 0 ? " " : ""}{renderInlineMarkdown(line.trim())}</span>)}</p>);
+      paragraph = [];
+    }
+  };
+  const flushList = () => {
+    if (!listType || !listItems.length) { listItems = []; listType = null; return; }
+    const items = listItems.map((item, index) => <li key={index}>{renderInlineMarkdown(item)}</li>);
+    blocks.push(listType === "ol" ? <ol key={blocks.length}>{items}</ol> : <ul key={blocks.length}>{items}</ul>);
+    listItems = []; listType = null;
+  };
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (line.startsWith("\`\`\`")) {
+      flushParagraph(); flushList();
+      if (codeLines) { blocks.push(<pre className="markdown-code-block" key={blocks.length}><code>{codeLines.join("\n")}</code></pre>); codeLines = null; }
+      else codeLines = [];
+      return;
+    }
+    if (codeLines) { codeLines.push(rawLine); return; }
+    if (!line) { flushParagraph(); flushList(); return; }
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      flushParagraph(); flushList();
+      const level = heading[1].length, children = renderInlineMarkdown(heading[2]);
+      if (level === 1) blocks.push(<h3 key={blocks.length}>{children}</h3>);
+      else if (level === 2) blocks.push(<h4 key={blocks.length}>{children}</h4>);
+      else blocks.push(<h5 key={blocks.length}>{children}</h5>);
+      return;
+    }
+    if (/^([-*_])\1\1+\s*$/.test(line)) { flushParagraph(); flushList(); blocks.push(<hr key={blocks.length} />); return; }
+    const unordered = line.match(/^[-*+]\s+(.+)$/), ordered = line.match(/^\d+[.)]\s+(.+)$/);
+    if (unordered || ordered) {
+      flushParagraph(); const nextType = unordered ? "ul" : "ol";
+      if (listType && listType !== nextType) flushList();
+      listType = nextType; listItems.push((unordered || ordered)![1]); return;
+    }
+    flushList(); paragraph.push(rawLine);
+  });
+  flushParagraph(); flushList();
+  if (codeLines) blocks.push(<pre className="markdown-code-block" key={blocks.length}><code>{codeLines.join("\n")}</code></pre>);
+  return <div className="markdown-content">{blocks}</div>;
 }
 
 export default function Home() {
@@ -204,7 +271,7 @@ export default function Home() {
         <header className="topbar"><div className="topbar-left"><button type="button" className="icon-button mobile-menu" onClick={() => setSidebarOpen(true)} aria-label="Open sidebar">☰</button><div className="mobile-page-title"><span className="status-dot" /> Graph Memory</div><div className="model-picker"><span className="model-orb">✦</span><span><strong>Graph Memory</strong><small>Automatic context</small></span><span className="chevron">⌄</span></div></div><div className="topbar-actions"><span className="connection-status"><i /> <span>FalkorDB connected</span></span><button type="button" className="icon-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label="Toggle color theme">{theme === "dark" ? "☼" : "◐"}</button><button type="button" className="share-button" onClick={() => navigator.clipboard?.writeText(window.location.href)}><span>↗</span> Share</button><button type="button" className="top-avatar" onClick={() => { setAuthMode("login"); setAuthOpen(true); }}>{profile?.name?.[0]?.toUpperCase() || "A"}</button></div></header>
         <div className="chat-viewport"><div className="chat-column">
           <div className="chat-heading"><div className="heading-kicker"><span className="sparkle">✦</span> Your private knowledge layer</div><h1>{activeChat?.title === "New memory chat" ? "What would you like to remember?" : activeChat?.title}</h1><p>Store the details behind your work, then ask questions that span people, projects, and relationships.</p></div>
-          <div className="message-list" aria-live="polite" aria-label="Conversation">{activeChat?.messages.map((message, index) => <div key={`${activeChat.id}-${message.role}-${index}`} className={`message-row ${message.role === "user" ? "message-row-user" : ""}`}><div className={`message-avatar ${message.role === "user" ? "user-avatar" : "agent-avatar"}`}>{message.role === "user" ? (profile?.name?.[0]?.toUpperCase() || "A") : "✦"}</div><div className="message-content"><div className="message-meta"><strong>{message.role === "user" ? profile?.name || "You" : "Graph Memory"}</strong><span>{message.role === "user" ? "Just now" : "Agent response"}</span></div><div className={`message-text ${message.role === "user" ? "message-text-user" : ""}`}>{message.content}</div></div></div>)}{loading && <div className="message-row" role="status"><div className="message-avatar agent-avatar">✦</div><div className="message-content"><div className="message-meta"><strong>Graph Memory</strong><span>Thinking</span></div><div className="loading-line"><span /><span /><span /></div></div></div>}<div ref={endRef} /></div>
+          <div className="message-list" aria-live="polite" aria-label="Conversation">{activeChat?.messages.map((message, index) => <div key={`${activeChat.id}-${message.role}-${index}`} className={`message-row ${message.role === "user" ? "message-row-user" : ""}`}><div className={`message-avatar ${message.role === "user" ? "user-avatar" : "agent-avatar"}`}>{message.role === "user" ? (profile?.name?.[0]?.toUpperCase() || "A") : "✦"}</div><div className="message-content"><div className="message-meta"><strong>{message.role === "user" ? profile?.name || "You" : "Graph Memory"}</strong><span>{message.role === "user" ? "Just now" : "Agent response"}</span></div><div className={`message-text ${message.role === "user" ? "message-text-user" : ""}`}>{message.role === "assistant" ? renderMarkdown(message.content) : message.content}</div></div></div>)}{loading && <div className="message-row" role="status"><div className="message-avatar agent-avatar">✦</div><div className="message-content"><div className="message-meta"><strong>Graph Memory</strong><span>Thinking</span></div><div className="loading-line"><span /><span /><span /></div></div></div>}<div ref={endRef} /></div>
           {activeChat?.messages.length === 1 && <div className="starter-grid">{starterPrompts.map((prompt) => <button key={prompt.text} type="button" className="starter-card" onClick={() => setInput(prompt.text)}><span className="starter-icon">{prompt.icon}</span><span><strong>{prompt.label}</strong><small>{prompt.text}</small></span><span className="starter-arrow">↗</span></button>)}</div>}
           <form onSubmit={sendMessage} className="composer-wrap">
             {uploadError && <p className="upload-error" role="alert">{uploadError}</p>}

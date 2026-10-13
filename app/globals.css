@@ -197,3 +197,21 @@ kbd { margin-left: auto; border: 1px solid var(--border); border-radius: 5px; co
 .preview-table div { overflow: hidden; border-top: 1px solid var(--border); padding: 5px 8px; text-overflow: ellipsis; white-space: nowrap; }
 .extraction-preview pre { max-height: 160px; overflow: auto; margin: 8px 0 0; border-radius: 7px; background: var(--surface-soft); color: var(--ink-soft); padding: 8px; font: 10px/1.55 var(--font-geist-mono), ui-monospace, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 620px) { .extraction-preview { margin-left: 0; }.attachment-wait { margin-left: 0; }.upload-status, .upload-error { font-size: 10px; } }
+
+/* Structured Markdown rendering for assistant responses. */
+.markdown-content { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; white-space: normal; overflow-wrap: anywhere; }
+.markdown-content > :first-child { margin-top: 0; }
+.markdown-content > :last-child { margin-bottom: 0; }
+.markdown-content p { margin: 0; }
+.markdown-content h3, .markdown-content h4, .markdown-content h5 { margin: 5px 0 0; color: var(--foreground); font-weight: 700; line-height: 1.35; }
+.markdown-content h3 { font-size: 1.12em; }
+.markdown-content h4 { font-size: 1.04em; }
+.markdown-content h5 { font-size: 1em; }
+.markdown-content ul, .markdown-content ol { margin: 0; padding-left: 22px; }
+.markdown-content li { padding-left: 3px; margin: 3px 0; }
+.markdown-content li::marker { color: var(--accent-strong); }
+.markdown-content strong { color: var(--foreground); font-weight: 700; }
+.markdown-content a { color: var(--accent-strong); text-decoration: underline; text-underline-offset: 2px; }
+.markdown-content hr { width: 100%; border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+.markdown-inline-code { border: 1px solid var(--border); border-radius: 5px; background: var(--surface-soft); padding: 1px 5px; font: .92em var(--font-geist-mono), ui-monospace, monospace; }
+.markdown-code-block { max-width: 100%; width: 100%; overflow-x: auto; margin: 0; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-soft); padding: 12px; white-space: pre; font: 12px/1.6 var(--font-geist-mono), ui-monospace, monospace; }
