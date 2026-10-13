@@ -42,10 +42,13 @@ async function generateGroundedAnswer(
 ) {
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
   let toolExecutions = 0;
-  const toolConfig = graph ? {
-    tools: [{ functionDeclarations: graphToolDeclarations }],
+  const availableTools = graph
+    ? graphToolDeclarations
+    : graphToolDeclarations.filter((tool) => tool.name === "get_current_datetime");
+  const toolConfig = {
+    tools: [{ functionDeclarations: availableTools }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
-  } : undefined;
+  };
   let response = await ai.models.generateContent({ model: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash", contents, config: toolConfig });
 
   while (response.functionCalls?.length && toolExecutions < MAX_TOOL_EXECUTIONS) {
