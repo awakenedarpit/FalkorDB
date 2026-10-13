@@ -60,7 +60,7 @@ async function generateGroundedAnswer(
       toolExecutions += 1;
       let output: unknown;
       try {
-        output = graph ? await executeGraphTool(graph, userId, call.name, (call.args || {}) as Record<string, unknown>) : { ok: false, error: "Graph memory is unavailable." };
+        output = await executeGraphTool(graph, userId, call.name, (call.args || {}) as Record<string, unknown>);
       } catch (error) {
         console.error("[GRAPH MEMORY] Tool execution failed:", error);
         output = { ok: false, error: "Graph memory could not answer this lookup." };
