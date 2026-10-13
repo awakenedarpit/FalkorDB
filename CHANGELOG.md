@@ -93,6 +93,13 @@ All notable project changes are recorded here.
 - Validation passed after a clean `npm ci`: 36 tests, lint, production build, and `git diff --check`.
 - `npm audit` reports five pre-existing high-severity findings in the lint dependency tree; the suggested fix is a major-version downgrade, so it was not applied. Live Gemini/FalkorDB tests still require credentials.
 
+### Stage 3 — Resilient general knowledge and graph memory
+
+- Made FalkorDB optional for general-knowledge answers; connection timeouts, retrieval failures, and memory-write failures no longer discard a valid Gemini response.
+- Added separate graph and retrieval status fields to chat responses and explicit no-fabrication guidance when personal memory evidence is unavailable.
+- Added a selective persistence policy so ordinary general-knowledge turns are not written as durable memories, while explicit personal-memory requests and document summaries remain eligible.
+- Added configurable `GEMINI_CHAT_MODEL` and `GEMINI_VISION_MODEL` overrides and focused policy regression tests.
+
 ### Planned next
 
 - Configure valid Gemini and FalkorDB credentials in the target runtime and run non-destructive live smoke tests.

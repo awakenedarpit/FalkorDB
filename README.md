@@ -7,7 +7,7 @@ Graph Memory Agent is a Next.js application for the Graph Hacks hackathon. It co
 - Node.js 22.13+
 - npm
 - Gemini API credentials
-- FalkorDB credentials and a reachable graph instance
+- FalkorDB credentials and a reachable graph instance for personal-memory features
 
 ## Local setup
 
@@ -34,10 +34,10 @@ npm run build
 npm test
 ```
 
-The live chat and graph routes require configured Gemini/FalkorDB variables. See `AGENTS.md`, `MEMORY.md`, `PRD.md`, and `TRD.md` for architecture, safety rules, requirements, and verified status.
+Gemini is required for chat, but FalkorDB is optional for general-knowledge questions. Personal-memory retrieval and persistence are best-effort: graph outages are reported separately and must not discard an otherwise valid Gemini answer. `GEMINI_CHAT_MODEL` and `GEMINI_VISION_MODEL` can be set to model identifiers enabled for the target Gemini account. See `AGENTS.md`, `MEMORY.md`, `PRD.md`, and `TRD.md` for architecture, safety rules, requirements, and verified status.
 
 ## Current status
 
-The current implementation includes a responsive premium chat workspace with dark/light themes, graph-backed memory persistence and retrieval, entity identity resolution, provenance-aware typed relationships, bounded Gemini graph tools, recent conversational context, exact-memory correction with revision history, reversible forgetting, and validated document/image uploads with extraction previews. The graph explorer includes refresh, loading, empty, error, and node-detail states.
+The current implementation includes a responsive premium chat workspace with dark/light themes, graph-backed memory persistence and retrieval, selective persistence for memory-relevant turns, entity identity resolution, provenance-aware typed relationships, bounded Gemini graph tools, recent conversational context, exact-memory correction with revision history, reversible forgetting, and validated document/image uploads with extraction previews. The graph explorer includes refresh, loading, empty, error, and node-detail states.
 
 **Important:** user scope is currently based on a normalized request-level `userId`, not an authenticated session. The chat/upload API routes do not yet enforce authenticated identities or rate limits; control access before public multi-user deployment. Configure an authentication provider before using this as a multi-user production service. The live Gemini and FalkorDB routes also require the environment variables in `.env.example`.
