@@ -51,7 +51,8 @@ button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visib
 .workspace-sidebar { display: flex; width: 282px; flex: 0 0 282px; flex-direction: column; border-right: 1px solid var(--border); background: var(--sidebar); padding: 22px 14px 14px; }
 .sidebar-topline { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; }
 .brand { display: inline-flex; min-width: 0; align-items: center; gap: 11px; color: var(--foreground); text-decoration: none; }
-.brand-symbol { display: grid; height: 34px; width: 34px; place-items: center; border-radius: 11px; background: linear-gradient(135deg, #847cff, #5249dd); color: white; font-size: 16px; font-weight: 700; box-shadow: 0 9px 22px rgba(99, 91, 255, .25); }
+.brand-symbol { display: grid; height: 38px; width: 38px; flex: 0 0 38px; place-items: center; overflow: hidden; border: 1px solid rgba(139, 130, 255, .32); border-radius: 13px; background: radial-gradient(circle at 25% 15%, rgba(111, 224, 220, .2), transparent 48%), linear-gradient(145deg, #1b2340, #111522 70%); color: white; box-shadow: 0 8px 24px rgba(69, 92, 220, .2), inset 0 1px rgba(255,255,255,.08); }
+.brand-symbol svg { display: block; width: 28px; height: 28px; }
 .brand strong, .brand small { display: block; }
 .brand strong { font-size: 13px; letter-spacing: -.01em; }
 .brand small { margin-top: 3px; color: var(--muted); font-size: 10px; }
