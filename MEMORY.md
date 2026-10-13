@@ -5,8 +5,8 @@ _Last verified: 2026-10-12_
 ## Current state
 
 - Repository: `awakenedarpit/FalkorDB`
-- Main baseline: `c966ca7 Merge pull request #10 from awakenedarpit/premium-workspace-ui`
-- Active audit branch: `feature/multimodal-agent`
+- Main baseline: `a1f7536 Merge pull request #11 from awakenedarpit/feature/multimodal-agent`
+- Active feature branch: `feature/multimodal-agent` (Stage 2 upload work)
 - Stack: Next.js 16.4, TypeScript, React 19, Tailwind CSS 4, Gemini API, FalkorDB, `react-force-graph-2d`.
 
 ## Verified functionality
@@ -27,19 +27,20 @@ _Last verified: 2026-10-12_
 - Chat now accepts bounded recent conversation turns, preserves returned memory IDs on client user messages, and gives pronoun resolution an explicit immediately-previous-turn candidate with clarification fallback.
 - Chat now exposes only `search_memories` and `find_entity_relationships` through a maximum-four-call Gemini loop; tool queries are user-scoped and their evidence is returned to answer generation.
 - Graph writes now return confirmation rows, and chat reports only confirmed memory/entity/relationship persistence counts.
+- Chat now accepts PDF, DOCX, PPTX, TXT, Markdown, CSV, JPG/JPEG, PNG, and WEBP attachments with server-side validation, extraction previews, bounded multipart streaming, structured headings/tables, and PDF-page/PPTX-slide references. Scanned PDFs and images use server-side Gemini vision; uploaded bytes are processed in memory and only extracted text is persisted when sent.
 
 ## Baseline findings
 
 - `npm ci` passed.
 - `npm run lint` passed cleanly.
 - `npm run build` passed after `GraphNode` was updated with optional force-graph runtime `x` and `y` coordinates.
-- Local smoke tests returned HTTP 200 for `/` and `/graph`; missing integration configuration returned safe HTTP 500 JSON errors from `/api/chat` and `/api/graph`.
-- `npm test` passes 24 identity, persistence, provenance, retrieval, correction, forgetting, conversation, and tool regression tests.
+- Local smoke tests returned HTTP 200 for `/` and `/graph`; the upload API returned HTTP 200 for a valid TXT file and HTTP 422 for a spoofed PDF signature.
+- `npm test` passes 35 identity, persistence, provenance, retrieval, correction, forgetting, conversation, tool, and file-extraction regression tests.
 - Stage 1 audit found that `readGraphEvidence` and `search_memories` scoped memories but did not scope every traversed/returned mentioned entity. Those queries now enforce owner scope, with legacy unowned entities available only in the `default` compatibility scope.
-- `npm ci`, `npm run lint`, `npm run build`, and `git diff --check` pass on `feature/multimodal-agent`.
+- A clean `npm ci`, `npm run lint`, `npm run build`, and `git diff --check` pass on `feature/multimodal-agent` after Stage 2.
 - Required Gemini/FalkorDB environment variables are absent in this environment, so live connectivity and real graph read/write checks were not run.
 - Tracked-file secret scan found no committed secrets or environment files (only `.env.example`).
-- `npm audit` reports five high-severity findings in the lint dependency tree; its suggested fix downgrades `eslint-config-next` across a major version, so no automatic dependency change was made.
+- `npm audit` reports five high-severity findings in the existing lint dependency tree; its suggested fix downgrades `eslint-config-next` across a major version, so no automatic dependency change was made. The new upload dependencies add no audit findings.
 
 ## Known risks
 
@@ -54,6 +55,7 @@ _Last verified: 2026-10-12_
 6. Legacy unowned entities are visible only to the `default` compatibility scope; no automatic migration has assigned ownership.
 7. The diagnostic memory-test route is repeatable but remains a diagnostic endpoint rather than a production health-check boundary.
 8. Dependency installation reports five high-severity audit findings; no forced upgrade has been applied.
+9. Chat and upload APIs still lack authenticated identity and rate limiting; restrict access before public multi-user deployment. Upload bytes are size-bounded and held in memory rather than stored on disk.
 
 ## Decisions
 

@@ -31,6 +31,7 @@ The repository has a Node.js test script. Add focused regression tests when chan
 - `app/page.tsx`: client chat workspace and message state.
 - `app/graph/page.tsx`: client graph explorer and node details.
 - `app/api/chat/route.ts`: Gemini request handling, provenance-aware memory persistence, entity extraction, canonical-name resolution, and typed relationship writes.
+- `app/api/upload/route.ts` and `lib/file-extraction.ts`: bounded in-memory multipart uploads, file validation, local parsers, image/PDF Gemini vision extraction, and structured extraction previews.
 - `app/api/graph/route.ts`: FalkorDB graph read API for memory and entity nodes/links.
 - `app/api/memory-test/route.ts`: diagnostic graph write/read route; keep it out of production workflows.
 - `app/globals.css`: global visual tokens and base styles.
@@ -51,10 +52,10 @@ Each completed milestone gets a dedicated branch, focused commit(s), documentati
 
 ## Current verified baseline (2026-10-12)
 
-- `main` includes the full feature stack through merged PR #10; Stage 1 audit fixes are on `feature/multimodal-agent`.
-- `npm ci`, `npm test` (24 passed), `npm run lint`, and `npm run build` passed on the Stage 1 branch.
+- `main` includes the full feature stack through PR #10 and the Stage 1 audit fix from PR #11; Stage 2 upload work is on `feature/multimodal-agent`.
+- `npm ci`, `npm test` (35 passed), `npm run lint`, and `npm run build` passed on the Stage 2 branch.
 - `git diff --check` passed; the tracked-file scan found no committed secrets or environment files (only `.env.example`).
-- Live Gemini/FalkorDB checks could not be run because the required environment variables are absent from this environment.
-- `npm audit` reports five high-severity findings in the lint dependency tree; the suggested automatic fix downgrades `eslint-config-next` across a major version and was not applied.
+- Live Gemini/FalkorDB checks could not be run because the required environment variables are absent from this environment. File uploads are bounded and processed in memory, but chat/upload routes still require authentication and rate limiting before public multi-user deployment.
+- `npm audit` reports five high-severity findings in the existing lint dependency tree; the suggested automatic fix downgrades `eslint-config-next` across a major version and was not applied. The new upload dependencies add no audit findings.
 
 See `MEMORY.md`, `TRD.md`, and `CHANGELOG.md` for the maintained project record.

@@ -1,12 +1,17 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 type Message = { role: "user" | "assistant"; content: string; memoryId?: string };
 type ChatSession = { id: string; title: string; createdAt: number; updatedAt: number; messages: Message[] };
 type Theme = "dark" | "light";
 type AuthMode = "login" | "signup";
+type UploadPreview = { name: string; kind: string; size: number; text: string; headings: string[]; tables: { title: string; rows: string[][] }[]; references: string[]; truncated: boolean };
+
+const acceptedFiles = ".pdf,.docx,.pptx,.txt,.md,.csv,.jpg,.jpeg,.png,.webp";
+const maxUploadFiles = 5;
+const maxUploadFileBytes = 10 * 1024 * 1024;
 
 const starterPrompts = [
   { icon: "✦", label: "Remember a fact", text: "Remember that my hackathon project uses FalkorDB." },
@@ -42,6 +47,13 @@ export default function Home() {
   const [profile, setProfile] = useState<{ name: string; email: string } | null>(null);
   const [authNotice, setAuthNotice] = useState("");
   const endRef = useRef<HTMLDivElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
+  const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
+  const [extractionPreviews, setExtractionPreviews] = useState<UploadPreview[]>([]);
+  const [attachmentToken, setAttachmentToken] = useState("");
+  const [uploading, setUploading] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState("");
+  const [uploadError, setUploadError] = useState("");
 
   const activeChat = sessions.find((session) => session.id === activeId) || sessions[0];
   const visibleSessions = useMemo(() => sessions.filter((session) => session.title.toLowerCase().includes(chatSearch.toLowerCase())), [sessions, chatSearch]);
@@ -90,19 +102,73 @@ export default function Home() {
     setSidebarOpen(false);
   }
 
+  async function previewFiles(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = "";
+    if (!files.length) return;
+    if (files.length > maxUploadFiles) { setUploadError(`Choose no more than ${maxUploadFiles} files at a time.`); return; }
+    if (files.some((file) => file.size > maxUploadFileBytes)) { setUploadError("Each file must be 10 MB or smaller."); return; }
+    if (files.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) { setUploadError("The combined upload size must be 20 MB or smaller."); return; }
+    setAttachedFiles(files);
+    setExtractionPreviews([]);
+    setAttachmentToken("");
+    setUploadError("");
+    setUploading(true);
+    setUploadStatus("Validating files and extracting content…");
+    try {
+      const formData = new FormData();
+      files.forEach((file) => formData.append("files", file));
+      const response = await fetch("/api/upload", { method: "POST", body: formData });
+      const data = await response.json();
+      if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The selected files could not be extracted.");
+      setExtractionPreviews(Array.isArray(data.files) ? data.files as UploadPreview[] : []);
+      setAttachmentToken(typeof data.token === "string" ? data.token : "");
+      setUploadStatus(`${files.length} ${files.length === 1 ? "file" : "files"} extracted. Review the preview before sending.`);
+    } catch (error) {
+      setUploadError(error instanceof Error ? error.message : "The selected files could not be extracted.");
+      setUploadStatus("");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  function removeFile(index: number) {
+    setAttachedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    setExtractionPreviews((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    setAttachmentToken("");
+    setUploadError("");
+    setUploadStatus(attachedFiles.length <= 1 ? "" : "File removed. Re-select the remaining files to refresh their secure preview.");
+  }
+
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    if (!text || loading || !activeChat) return;
+    const filesReady = attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length && Boolean(attachmentToken) && !uploadError;
+    if ((!text && !filesReady) || loading || uploading || !activeChat) return;
+    const userText = text || "Please summarize the attached files.";
+    const displayedUserText = attachedFiles.length ? `${userText}\n\nAttachments: ${attachedFiles.map((file) => file.name).join(", ")}` : userText;
     const conversation = activeChat.messages.slice(-8).map(({ role, content, memoryId }) => ({ role, content, ...(memoryId ? { memoryId } : {}) }));
-    updateActiveChat((chat) => ({ ...chat, title: chat.title === "New memory chat" ? text.slice(0, 48) : chat.title, updatedAt: Date.now(), messages: [...chat.messages, { role: "user", content: text }] }));
+    updateActiveChat((chat) => ({ ...chat, title: chat.title === "New memory chat" ? userText.slice(0, 48) : chat.title, updatedAt: Date.now(), messages: [...chat.messages, { role: "user", content: displayedUserText }] }));
     setInput("");
     setLoading(true);
     try {
-      const response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, conversation }) });
+      let response: Response;
+      if (attachedFiles.length) {
+        const formData = new FormData();
+        formData.set("message", text);
+        formData.set("conversation", JSON.stringify(conversation));
+        formData.set("attachmentToken", attachmentToken);
+        response = await fetch("/api/chat", { method: "POST", body: formData });
+      } else {
+        response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, conversation }) });
+      }
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The AI request failed.");
       updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: chat.messages.map((item, index) => index === chat.messages.length - 1 && item.role === "user" && typeof data.memoryId === "string" ? { ...item, memoryId: data.memoryId } : item).concat({ role: "assistant", content: data.reply || "Gemini returned an empty response." }) }));
+      setAttachedFiles([]);
+      setExtractionPreviews([]);
+      setAttachmentToken("");
+      setUploadStatus("");
     } catch (error) {
       updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: [...chat.messages, { role: "assistant", content: error instanceof Error ? `I couldn’t reach the memory service: ${error.message}` : "I couldn’t reach the memory service. Please try again." }] }));
     } finally {
@@ -140,7 +206,30 @@ export default function Home() {
           <div className="chat-heading"><div className="heading-kicker"><span className="sparkle">✦</span> Your private knowledge layer</div><h1>{activeChat?.title === "New memory chat" ? "What would you like to remember?" : activeChat?.title}</h1><p>Store the details behind your work, then ask questions that span people, projects, and relationships.</p></div>
           <div className="message-list" aria-live="polite" aria-label="Conversation">{activeChat?.messages.map((message, index) => <div key={`${activeChat.id}-${message.role}-${index}`} className={`message-row ${message.role === "user" ? "message-row-user" : ""}`}><div className={`message-avatar ${message.role === "user" ? "user-avatar" : "agent-avatar"}`}>{message.role === "user" ? (profile?.name?.[0]?.toUpperCase() || "A") : "✦"}</div><div className="message-content"><div className="message-meta"><strong>{message.role === "user" ? profile?.name || "You" : "Graph Memory"}</strong><span>{message.role === "user" ? "Just now" : "Agent response"}</span></div><div className={`message-text ${message.role === "user" ? "message-text-user" : ""}`}>{message.content}</div></div></div>)}{loading && <div className="message-row" role="status"><div className="message-avatar agent-avatar">✦</div><div className="message-content"><div className="message-meta"><strong>Graph Memory</strong><span>Thinking</span></div><div className="loading-line"><span /><span /><span /></div></div></div>}<div ref={endRef} /></div>
           {activeChat?.messages.length === 1 && <div className="starter-grid">{starterPrompts.map((prompt) => <button key={prompt.text} type="button" className="starter-card" onClick={() => setInput(prompt.text)}><span className="starter-icon">{prompt.icon}</span><span><strong>{prompt.label}</strong><small>{prompt.text}</small></span><span className="starter-arrow">↗</span></button>)}</div>}
-          <form onSubmit={sendMessage} className="composer-wrap"><div className="premium-composer"><div className="composer-tools"><button type="button" className="composer-icon" aria-label="Add context">＋</button></div><textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Message your memory agent…" rows={1} disabled={loading} aria-label="Message your memory agent" /><div className="composer-actions"><span className="composer-hint">{loading ? "Working…" : "↵ to send"}</span><button type="submit" className="send-button" disabled={loading || !input.trim()} aria-label="Send message">↑</button></div></div><p className="composer-disclaimer">Graph Memory can make mistakes. Check important information against your source graph.</p></form>
+          <form onSubmit={sendMessage} className="composer-wrap">
+            {uploadError && <p className="upload-error" role="alert">{uploadError}</p>}
+            {uploadStatus && <p className="upload-status" role="status">{uploading && <span className="upload-spinner" aria-hidden="true" />} {uploadStatus}</p>}
+            {attachedFiles.length > 0 && <div className="attachment-list" aria-label="Attached files">
+              {attachedFiles.map((file, index) => {
+                const preview = extractionPreviews[index];
+                return <article className="attachment-card" key={`${file.name}-${file.lastModified}-${index}`}>
+                  <div className="attachment-topline"><span className="attachment-file-icon" aria-hidden="true">▤</span><div className="attachment-file-copy"><strong>{file.name}</strong><small>{(file.size / 1024 / 1024).toFixed(file.size < 1024 * 1024 ? 2 : 1)} MB{preview ? ` · ${preview.kind.toUpperCase()}` : " · Processing"}</small></div><button type="button" className="attachment-remove" disabled={loading || uploading} onClick={() => removeFile(index)} aria-label={`Remove ${file.name}`}>×</button></div>
+                  {preview ? <details className="extraction-preview"><summary>Extraction preview{preview.truncated ? " (truncated)" : ""}</summary>
+                    {preview.headings.length > 0 && <p><strong>Headings:</strong> {preview.headings.slice(0, 8).join(" · ")}</p>}
+                    {preview.references.length > 0 && <p><strong>References:</strong> {preview.references.slice(0, 12).join(", ")}</p>}
+                    {preview.tables.map((table, tableIndex) => <div className="preview-table" key={`${table.title}-${tableIndex}`}><strong>{table.title}</strong>{table.rows.slice(0, 5).map((row, rowIndex) => <div key={rowIndex}>{row.join(" | ")}</div>)}</div>)}
+                    <pre>{preview.text.slice(0, 3000)}{preview.text.length > 3000 ? "…" : ""}</pre>
+                  </details> : <p className="attachment-wait">{uploading ? "Checking file signature and extracting content…" : "Preview unavailable."}</p>}
+                </article>;
+              })}
+            </div>}
+            <div className="premium-composer">
+              <div className="composer-tools"><input ref={uploadInputRef} className="upload-input" type="file" accept={acceptedFiles} multiple onChange={previewFiles} aria-label="Choose files to attach" /><button type="button" className="composer-icon" aria-label="Attach documents or images" title="Attach PDF, DOCX, PPTX, TXT, Markdown, CSV, JPG, PNG, or WEBP" disabled={loading || uploading} onClick={() => uploadInputRef.current?.click()}>＋</button></div>
+              <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Message your memory agent…" rows={1} disabled={loading || uploading} aria-label="Message your memory agent" />
+              <div className="composer-actions"><span className="composer-hint">{loading ? "Working…" : uploading ? "Extracting…" : "↵ to send"}</span><button type="submit" className="send-button" disabled={loading || uploading || Boolean(uploadError) || (!input.trim() && !(attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length && Boolean(attachmentToken)))} aria-label="Send message">↑</button></div>
+            </div>
+            <p className="composer-disclaimer">Files are processed in memory; extracted content is saved as a memory when sent. Graph Memory can make mistakes—check important information against your source graph.</p>
+          </form>
         </div></div>
       </section>
 
