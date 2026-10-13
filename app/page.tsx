@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 type Message = { role: "user" | "assistant"; content: string; memoryId?: string };
 type ChatSession = { id: string; title: string; createdAt: number; updatedAt: number; messages: Message[] };
@@ -50,7 +50,7 @@ function renderMarkdown(content: string) {
   const normalized = content.replace(/\r\n?/g, "\n").replace(/\\([\\\`*_{}\[\]()#+.!>|~-])/g, "$1").trim();
   if (!normalized) return null;
   const lines = normalized.split("\n");
-  const blocks: React.ReactNode[] = [];
+  const blocks: ReactNode[] = [];
   let paragraph: string[] = [];
   let listItems: string[] = [];
   let listType: "ul" | "ol" | null = null;
