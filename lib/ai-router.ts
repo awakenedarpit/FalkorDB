@@ -85,17 +85,20 @@ export async function generateTextWithFallback(prompt: string, options: Generate
   const excluded = new Set(options.excludeProviders || []);
   const providers = configuredProviders().filter((provider) => !excluded.has(provider) && hasKey(provider));
   if (!providers.length) throw new AIProviderError("No alternate AI provider is configured. Add a supported provider API key or wait for the current provider quota to reset.", 503);
-  const failures: string[] = [];\n  const statuses: number[] = [];
+  const failures: string[] = [];
+  const statuses: number[] = [];
   for (const provider of providers) {
     try {
       const text = await callProvider(provider, prompt, options.json === true);
       console.info(`[AI ROUTER] Request completed with provider: ${provider}`);
       return text;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      failures.push(`${provider}: ${message}`);
-      console.error(`[AI ROUTER] Provider ${provider} failed; trying next provider.`, message);
+      const status = errorStatus(error);
+      if (status) statuses.push(status);
+      failures.push(provider);
+      console.error(`[AI ROUTER] Provider ${provider} failed${status ? ` with HTTP ${status}` : ""}; trying next configured provider.`);
     }
   }
-  const status = statuses.length > 0 && statuses.every((value) => value === 429) ? 429 : statuses.includes(503) ? 503 : 502;\n  throw new AIProviderError(`All configured AI providers failed: ${failures.join(", ")}.`, status);
+  const status = statuses.length > 0 && statuses.every((value) => value === 429) ? 429 : statuses.includes(503) ? 503 : 502;
+  throw new AIProviderError(`All configured AI providers failed: ${failures.join(", ")}.`, status);
 }
