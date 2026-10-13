@@ -262,8 +262,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ reply: result.text || "I couldn't generate a response. Please try again.", memoriesUsed: previousMemories.length, graphEvidenceUsed: graphEvidence.length, toolExecutions: result.toolExecutions || 0, contextTurnsUsed: conversation.length, contextMemoryId: previousUserTurn?.memoryId || null, memorySaved, memoryId: policy.persistMemory ? memoryId : null, userId, graphStatus, retrievalStatus, memoryPolicy: policy.persistMemory ? "persisted" : "not_persisted", entitiesCreated: persistedEntityCount, relationshipsCreated: persistedRelationshipCount, attachments: extractedFiles.map(({ name, kind, size, headings, references, truncated }) => ({ name, kind, size, headings, references, truncated })) });
   } catch (error) {
     if (error instanceof FileExtractionError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AIProviderError) {
+      console.error("[AI ROUTER] Chat generation unavailable:", error.message);
+      const message = error.status === 429
+        ? "The AI provider quota is exhausted. Configure another provider or wait for the quota to reset."
+        : error.status === 503
+          ? "The AI service is temporarily unavailable or no alternate provider is configured. Configure another supported provider or try again later."
+          : "All configured AI providers failed. Check provider availability and server logs.";
+      return NextResponse.json({ error: message }, { status: error.status });
+    }
     console.error("Graph Memory chat failed:", error);
-    return NextResponse.json({ error: "The chat request failed. Check the VS Code terminal for details." }, { status: 500 });
+    return NextResponse.json({ error: "The chat request failed. Check the server logs for details." }, { status: 500 });
   } finally {
     if (db) { try { await db.close(); } catch (closeError) { console.error("FalkorDB close failed:", closeError); } }
   }
