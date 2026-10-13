@@ -284,3 +284,81 @@ html, body {
     flex-basis: 59px;
   }
 }
+
+
+/* Keep the message composer visible while the conversation itself scrolls. */
+.chat-viewport {
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.chat-column {
+  display: flex;
+  width: min(100% - 48px, 850px);
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  padding: 28px 0 14px;
+  overflow: hidden;
+}
+
+.chat-heading {
+  flex: 0 0 auto;
+  margin-bottom: 22px;
+}
+
+.message-list {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 2px 2px 12px;
+  scrollbar-gutter: stable;
+}
+
+.starter-grid {
+  flex: 0 0 auto;
+  margin-top: 14px;
+}
+
+.composer-wrap {
+  flex: 0 0 auto;
+  margin-top: 16px;
+  padding-bottom: 2px;
+}
+
+.composer-disclaimer {
+  line-height: 1.5;
+}
+
+@media (max-width: 860px) {
+  .chat-column {
+    width: min(100% - 32px, 850px);
+    padding-top: 24px;
+  }
+}
+
+@media (max-width: 620px) {
+  .chat-column {
+    width: min(100% - 28px, 850px);
+    padding-top: 20px;
+    padding-bottom: 10px;
+  }
+
+  .chat-heading {
+    margin-bottom: 18px;
+  }
+
+  .starter-grid {
+    margin-top: 12px;
+  }
+
+  .composer-wrap {
+    margin-top: 12px;
+  }
+}
