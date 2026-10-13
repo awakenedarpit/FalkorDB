@@ -3,6 +3,19 @@ import { GoogleGenAI } from "@google/genai";
 export type AIProvider = "gemini" | "groq" | "openrouter";
 type GenerateOptions = { json?: boolean; excludeProviders?: AIProvider[] };
 
+export class AIProviderError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "AIProviderError";
+  }
+}
+
+function errorStatus(error: unknown): number | undefined {
+  if (!error || typeof error !== "object") return undefined;
+  const status = (error as { status?: unknown }).status;
+  return typeof status === "number" ? status : undefined;
+}
+
 function configuredProviders(): AIProvider[] {
   const defaults: AIProvider[] = ["gemini", "groq", "openrouter"];
   const configured = (process.env.AI_PROVIDER_PRIORITY || defaults.join(","))
@@ -71,18 +84,21 @@ async function callProvider(provider: AIProvider, prompt: string, json: boolean)
 export async function generateTextWithFallback(prompt: string, options: GenerateOptions = {}): Promise<string> {
   const excluded = new Set(options.excludeProviders || []);
   const providers = configuredProviders().filter((provider) => !excluded.has(provider) && hasKey(provider));
-  if (!providers.length) throw new Error("No eligible AI provider is configured. Add API keys and check AI_PROVIDER_PRIORITY in .env.local.");
+  if (!providers.length) throw new AIProviderError("No alternate AI provider is configured. Add a supported provider API key or wait for the current provider quota to reset.", 503);
   const failures: string[] = [];
+  const statuses: number[] = [];
   for (const provider of providers) {
     try {
       const text = await callProvider(provider, prompt, options.json === true);
       console.info(`[AI ROUTER] Request completed with provider: ${provider}`);
       return text;
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      failures.push(`${provider}: ${message}`);
-      console.error(`[AI ROUTER] Provider ${provider} failed; trying next provider.`, message);
+      const status = errorStatus(error);
+      if (status) statuses.push(status);
+      failures.push(provider);
+      console.error(`[AI ROUTER] Provider ${provider} failed${status ? ` with HTTP ${status}` : ""}; trying next configured provider.`);
     }
   }
-  throw new Error(`All configured AI providers failed. ${failures.join(" | ")}`);
+  const status = statuses.length > 0 && statuses.every((value) => value === 429) ? 429 : statuses.includes(503) ? 503 : 502;
+  throw new AIProviderError(`All configured AI providers failed: ${failures.join(", ")}.`, status);
 }
