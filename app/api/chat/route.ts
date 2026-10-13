@@ -43,7 +43,7 @@ async function generateGroundedAnswer(
   let toolExecutions = 0;
   const toolConfig = graph ? {
     tools: [{ functionDeclarations: graphToolDeclarations }],
-    toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO, allowedFunctionNames: graphToolDeclarations.map((tool) => tool.name).filter((name): name is string => Boolean(name)) } },
+    toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
   } : undefined;
   let response = await ai.models.generateContent({ model: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash", contents, config: toolConfig });
 
