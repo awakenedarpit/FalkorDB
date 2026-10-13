@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import { dedupeExtractedEntities, dedupeRelationships, resolveEntityIdentity } from "@/lib/identity";
 import type { EntityType, KnownEntity } from "@/lib/identity";
 import { buildConversationContext, sanitizeConversation } from "@/lib/conversation";
-import { executeGraphTool, graphToolDeclarations, MAX_TOOL_EXECUTIONS } from "@/lib/agent-tools";
+import { executeGraphTool, getCurrentDateTime, graphToolDeclarations, MAX_TOOL_EXECUTIONS } from "@/lib/agent-tools";
 import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readGraphEvidence, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
 import type { GraphQueryRunner } from "@/lib/persistence";
 import { attachmentPromptContext, extractUploadedFiles, FileExtractionError, isUploadFile, readBoundedUploadForm, tooLargeRequest, verifyAttachmentToken } from "@/lib/file-extraction";
@@ -107,7 +107,19 @@ export async function POST(request: Request) {
     const message = typeof body.message === "string" ? body.message.trim() : "";
     const attachmentToken = typeof body.attachmentToken === "string" ? body.attachmentToken : "";
     if (!message && !uploadFiles.length && !attachmentToken) return NextResponse.json({ error: "Please enter a message or attach one or more files." }, { status: 400 });
-    const userMessage = message || "Please summarize the attached files.";
+    const userMessage = message || "Please summarize the attached files."; 
+    const asksForCurrentDateTime = /\b(what is the (current )?(time|date)|what time is it|what date is it|current date and time|date and time right now|time right now|current time|today date|tell me the time|what day is it today)\b/i.test(userMessage);
+    if (asksForCurrentDateTime && !uploadFiles.length && !attachmentToken) {
+      const current = getCurrentDateTime();
+      return NextResponse.json({
+        reply: "The current date and time is " + current.localDateTime + ".",
+        memoriesUsed: 0, graphEvidenceUsed: 0, toolExecutions: 1, contextTurnsUsed: 0,
+        contextMemoryId: null, memorySaved: false, memoryId: null,
+        userId: normalizeUserId(body.userId), graphStatus: "not_requested",
+        retrievalStatus: "not_requested", memoryPolicy: "not_persisted",
+        entitiesCreated: 0, relationshipsCreated: 0, attachments: [],
+      });
+    }
     if (attachmentToken && uploadFiles.length) return NextResponse.json({ error: "Send either the signed attachment preview or the original files, not both." }, { status: 400 });
     const extractedFiles = attachmentToken
       ? verifyAttachmentToken(attachmentToken, process.env.UPLOAD_TOKEN_SECRET || apiKey)
