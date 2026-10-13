@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { extractUploadedFiles, FileExtractionError, isUploadFile, readBoundedUploadForm, tooLargeRequest } from "@/lib/file-extraction";
+import { createAttachmentToken, extractUploadedFiles, FileExtractionError, isUploadFile, readBoundedUploadForm, tooLargeRequest } from "@/lib/file-extraction";
 
 export const maxDuration = 60;
 
@@ -19,7 +19,8 @@ export async function POST(request: Request) {
     }
     const files = entries.filter(isUploadFile);
     const extracted = await extractUploadedFiles(files, { apiKey: process.env.GEMINI_API_KEY });
-    return NextResponse.json({ files: extracted }, { headers: { "Cache-Control": "no-store" } });
+    const token = createAttachmentToken(extracted, process.env.UPLOAD_TOKEN_SECRET || process.env.GEMINI_API_KEY);
+    return NextResponse.json({ files: extracted, token }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof FileExtractionError) {
       return NextResponse.json({ error: error.message }, { status: error.status, headers: { "Cache-Control": "no-store" } });

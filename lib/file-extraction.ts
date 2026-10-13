@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { parse as parseCsv } from "csv-parse/sync";
 import JSZip from "jszip";
 import { XMLParser } from "fast-xml-parser";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import sharp from "sharp";
 
 export const MAX_UPLOAD_FILES = 5;
@@ -43,6 +44,11 @@ export class FileExtractionError extends Error {
 }
 
 export type VisionExtractor = (bytes: Buffer, mimeType: string, prompt: string) => Promise<string>;
+
+const ATTACHMENT_TOKEN_VERSION = 1;
+const ATTACHMENT_TOKEN_TTL_MS = 10 * 60 * 1000;
+const EPHEMERAL_ATTACHMENT_SECRET = randomBytes(32).toString("hex");
+type AttachmentTokenPayload = { version: number; expiresAt: number; files: ExtractedUpload[] };
 
 const MIME_TYPES: Record<FileKind, string[]> = {
   pdf: ["application/pdf", "application/octet-stream"],
@@ -487,6 +493,64 @@ export async function extractUploadedFiles(
   const results: ExtractedUpload[] = [];
   for (const file of files) results.push(await extractOne(file, vision));
   return results;
+}
+
+function tokenSignature(payload: string, secret: string | undefined): string {
+  return createHmac("sha256", secret || EPHEMERAL_ATTACHMENT_SECRET).update(payload).digest("base64url");
+}
+
+function signaturesMatch(left: string, right: string): boolean {
+  const leftBytes = Buffer.from(left);
+  const rightBytes = Buffer.from(right);
+  return leftBytes.length === rightBytes.length && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function validateTokenFile(value: unknown): ExtractedUpload {
+  if (!value || typeof value !== "object") throw new FileExtractionError("The attachment token is invalid or expired.", 400);
+  const item = value as Partial<ExtractedUpload>;
+  const kinds: FileKind[] = ["pdf", "docx", "pptx", "txt", "md", "csv", "jpg", "png", "webp"];
+  if (typeof item.name !== "string" || typeof item.kind !== "string" || !kinds.includes(item.kind as FileKind) || typeof item.mimeType !== "string" || typeof item.size !== "number" || !Number.isSafeInteger(item.size) || item.size < 0 || item.size > MAX_UPLOAD_FILE_BYTES || typeof item.text !== "string" || item.text.length > MAX_EXTRACTED_TEXT_CHARS + 100 || !Array.isArray(item.headings) || !Array.isArray(item.tables) || !Array.isArray(item.references)) {
+    throw new FileExtractionError("The attachment token is invalid or expired.", 400);
+  }
+  return {
+    name: item.name.slice(0, 180),
+    kind: item.kind as FileKind,
+    mimeType: item.mimeType.slice(0, 100),
+    size: item.size,
+    text: item.text,
+    headings: item.headings.filter((entry): entry is string => typeof entry === "string").slice(0, MAX_HEADINGS),
+    tables: item.tables.filter((table): table is ExtractedTable => Boolean(table && typeof table === "object" && typeof (table as ExtractedTable).title === "string" && Array.isArray((table as ExtractedTable).rows))).slice(0, MAX_TABLES).map((table) => ({
+      title: table.title.slice(0, 120),
+      rows: table.rows.slice(0, MAX_TABLE_ROWS).map((row) => row.slice(0, MAX_TABLE_COLUMNS).filter((cell): cell is string => typeof cell === "string").map(cappedCell)),
+    })),
+    references: item.references.filter((entry): entry is string => typeof entry === "string").slice(0, MAX_REFERENCES),
+    truncated: item.truncated === true,
+  };
+}
+
+export function createAttachmentToken(files: ExtractedUpload[], secret: string | undefined, now = Date.now()): string {
+  const payload: AttachmentTokenPayload = {
+    version: ATTACHMENT_TOKEN_VERSION,
+    expiresAt: now + ATTACHMENT_TOKEN_TTL_MS,
+    files: files.map(validateTokenFile),
+  };
+  const encoded = Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return `${encoded}.${tokenSignature(encoded, secret)}`;
+}
+
+export function verifyAttachmentToken(token: string, secret: string | undefined, now = Date.now()): ExtractedUpload[] {
+  const [encoded, signature, ...extra] = token.split(".");
+  if (!encoded || !signature || extra.length || !signaturesMatch(signature, tokenSignature(encoded, secret))) throw new FileExtractionError("The attachment token is invalid or expired.", 400);
+  try {
+    const payload = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8")) as Partial<AttachmentTokenPayload>;
+    if (payload.version !== ATTACHMENT_TOKEN_VERSION || typeof payload.expiresAt !== "number" || payload.expiresAt < now || !Array.isArray(payload.files) || payload.files.length > MAX_UPLOAD_FILES) throw new Error("invalid payload");
+    const files = payload.files.map(validateTokenFile);
+    if (!files.length || files.reduce((total, file) => total + file.size, 0) > MAX_UPLOAD_TOTAL_BYTES) throw new Error("invalid files");
+    return files;
+  } catch (error) {
+    if (error instanceof FileExtractionError) throw error;
+    throw new FileExtractionError("The attachment token is invalid or expired.", 400);
+  }
 }
 
 export function isUploadFile(value: FormDataEntryValue): value is File {

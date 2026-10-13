@@ -4,11 +4,13 @@ import JSZip from "jszip";
 import sharp from "sharp";
 import {
   attachmentPromptContext,
+  createAttachmentToken,
   extractUploadedFiles,
   FileExtractionError,
   MAX_UPLOAD_FILE_BYTES,
   readBoundedUploadForm,
   tooLargeRequest,
+  verifyAttachmentToken,
 } from "./file-extraction.ts";
 
 function uploadFile(name: string, mimeType: string, bytes: Uint8Array | Buffer): File {
@@ -168,4 +170,12 @@ test("reads multipart forms through a byte-bounded stream", async () => {
   assert.ok(file instanceof File);
   assert.equal(file.name, "notes.txt");
   assert.equal(await file.text(), "private note");
+});
+
+test("signs extraction previews and rejects tampered or expired tokens", async () => {
+  const [file] = await extractUploadedFiles([uploadFile("notes.txt", "text/plain", Buffer.from("private note"))]);
+  const token = createAttachmentToken([file], "test-secret", 1_000);
+  assert.equal(verifyAttachmentToken(token, "test-secret", 1_001)[0].text, "private note");
+  assert.throws(() => verifyAttachmentToken(`${token.slice(0, -1)}x`, "test-secret", 1_001), /invalid or expired/i);
+  assert.throws(() => verifyAttachmentToken(token, "test-secret", 601_001), /invalid or expired/i);
 });

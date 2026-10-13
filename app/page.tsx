@@ -50,6 +50,7 @@ export default function Home() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const [extractionPreviews, setExtractionPreviews] = useState<UploadPreview[]>([]);
+  const [attachmentToken, setAttachmentToken] = useState("");
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState("");
   const [uploadError, setUploadError] = useState("");
@@ -110,6 +111,7 @@ export default function Home() {
     if (files.reduce((total, file) => total + file.size, 0) > 20 * 1024 * 1024) { setUploadError("The combined upload size must be 20 MB or smaller."); return; }
     setAttachedFiles(files);
     setExtractionPreviews([]);
+    setAttachmentToken("");
     setUploadError("");
     setUploading(true);
     setUploadStatus("Validating files and extracting content…");
@@ -120,6 +122,7 @@ export default function Home() {
       const data = await response.json();
       if (!response.ok) throw new Error(typeof data.error === "string" ? data.error : "The selected files could not be extracted.");
       setExtractionPreviews(Array.isArray(data.files) ? data.files as UploadPreview[] : []);
+      setAttachmentToken(typeof data.token === "string" ? data.token : "");
       setUploadStatus(`${files.length} ${files.length === 1 ? "file" : "files"} extracted. Review the preview before sending.`);
     } catch (error) {
       setUploadError(error instanceof Error ? error.message : "The selected files could not be extracted.");
@@ -132,14 +135,15 @@ export default function Home() {
   function removeFile(index: number) {
     setAttachedFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
     setExtractionPreviews((current) => current.filter((_, currentIndex) => currentIndex !== index));
+    setAttachmentToken("");
     setUploadError("");
-    setUploadStatus(attachedFiles.length <= 1 ? "" : "File removed. Remaining file previews are ready.");
+    setUploadStatus(attachedFiles.length <= 1 ? "" : "File removed. Re-select the remaining files to refresh their secure preview.");
   }
 
   async function sendMessage(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
-    const filesReady = attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length && !uploadError;
+    const filesReady = attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length && Boolean(attachmentToken) && !uploadError;
     if ((!text && !filesReady) || loading || uploading || !activeChat) return;
     const userText = text || "Please summarize the attached files.";
     const displayedUserText = attachedFiles.length ? `${userText}\n\nAttachments: ${attachedFiles.map((file) => file.name).join(", ")}` : userText;
@@ -153,7 +157,7 @@ export default function Home() {
         const formData = new FormData();
         formData.set("message", text);
         formData.set("conversation", JSON.stringify(conversation));
-        attachedFiles.forEach((file) => formData.append("files", file));
+        formData.set("attachmentToken", attachmentToken);
         response = await fetch("/api/chat", { method: "POST", body: formData });
       } else {
         response = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message: text, conversation }) });
@@ -163,6 +167,7 @@ export default function Home() {
       updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: chat.messages.map((item, index) => index === chat.messages.length - 1 && item.role === "user" && typeof data.memoryId === "string" ? { ...item, memoryId: data.memoryId } : item).concat({ role: "assistant", content: data.reply || "Gemini returned an empty response." }) }));
       setAttachedFiles([]);
       setExtractionPreviews([]);
+      setAttachmentToken("");
       setUploadStatus("");
     } catch (error) {
       updateActiveChat((chat) => ({ ...chat, updatedAt: Date.now(), messages: [...chat.messages, { role: "assistant", content: error instanceof Error ? `I couldn’t reach the memory service: ${error.message}` : "I couldn’t reach the memory service. Please try again." }] }));
@@ -221,7 +226,7 @@ export default function Home() {
             <div className="premium-composer">
               <div className="composer-tools"><input ref={uploadInputRef} className="upload-input" type="file" accept={acceptedFiles} multiple onChange={previewFiles} aria-label="Choose files to attach" /><button type="button" className="composer-icon" aria-label="Attach documents or images" title="Attach PDF, DOCX, PPTX, TXT, Markdown, CSV, JPG, PNG, or WEBP" disabled={loading || uploading} onClick={() => uploadInputRef.current?.click()}>＋</button></div>
               <textarea value={input} onChange={(event) => setInput(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} placeholder="Message your memory agent…" rows={1} disabled={loading || uploading} aria-label="Message your memory agent" />
-              <div className="composer-actions"><span className="composer-hint">{loading ? "Working…" : uploading ? "Extracting…" : "↵ to send"}</span><button type="submit" className="send-button" disabled={loading || uploading || Boolean(uploadError) || (!input.trim() && !(attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length))} aria-label="Send message">↑</button></div>
+              <div className="composer-actions"><span className="composer-hint">{loading ? "Working…" : uploading ? "Extracting…" : "↵ to send"}</span><button type="submit" className="send-button" disabled={loading || uploading || Boolean(uploadError) || (!input.trim() && !(attachedFiles.length > 0 && extractionPreviews.length === attachedFiles.length && Boolean(attachmentToken)))} aria-label="Send message">↑</button></div>
             </div>
             <p className="composer-disclaimer">Files are processed in memory; extracted content is saved as a memory when sent. Graph Memory can make mistakes—check important information against your source graph.</p>
           </form>

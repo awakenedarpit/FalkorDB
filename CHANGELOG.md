@@ -89,7 +89,8 @@ All notable project changes are recorded here.
 - Uploaded bytes remain in memory; only extracted content is written as a `document` memory when the user sends it. Attachment contents are explicitly treated as untrusted source data in Gemini prompts.
 - Replaced Mammoth with direct OOXML parsing, avoiding the vulnerable legacy parser dependency.
 - Focused upload tests cover supported formats, malformed and spoofed inputs, limits, slide/page references, scanned-PDF and image vision hooks, multipart size-bounding, and prompt-injection framing.
-- Validation passed after a clean `npm ci`: 35 tests, lint, production build, and `git diff --check`.
+- Added a short-lived HMAC-signed extraction token so image and scanned-PDF vision work is reused when a preview is sent to chat instead of running twice. Tokens are expiry-checked, tamper-resistant, size-bounded, and never store original upload bytes.
+- Validation passed after a clean `npm ci`: 36 tests, lint, production build, and `git diff --check`.
 - `npm audit` reports five pre-existing high-severity findings in the lint dependency tree; the suggested fix is a major-version downgrade, so it was not applied. Live Gemini/FalkorDB tests still require credentials.
 
 ### Planned next

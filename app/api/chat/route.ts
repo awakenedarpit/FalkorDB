@@ -9,7 +9,7 @@ import { buildConversationContext, sanitizeConversation } from "@/lib/conversati
 import { executeGraphTool, graphToolDeclarations, MAX_TOOL_EXECUTIONS } from "@/lib/agent-tools";
 import { getFalkorConfig, linkMemoryToEntity, normalizeUserId, readGraphEvidence, readRecentMemories, scopeEntityKey, writeEntity, writeMemory, writeRelationship } from "@/lib/persistence";
 import type { GraphQueryRunner } from "@/lib/persistence";
-import { attachmentPromptContext, extractUploadedFiles, FileExtractionError, isUploadFile, readBoundedUploadForm, tooLargeRequest } from "@/lib/file-extraction";
+import { attachmentPromptContext, extractUploadedFiles, FileExtractionError, isUploadFile, readBoundedUploadForm, tooLargeRequest, verifyAttachmentToken } from "@/lib/file-extraction";
 
 const allowedTypes = new Set<EntityType>(["Person", "Project", "Team", "Skill", "Organization", "Preference", "Place", "Other"]);
 const allowedRelations = new Set(["BUILDS", "MEMBER_OF", "TEAMMATE_OF", "KNOWS", "WORKS_ON", "LIKES", "USES", "RELATED_TO", "HANDLES", "LEADS", "CREATED", "PART_OF", "STUDIES", "LOCATED_IN", "HAS_SKILL", "COLLABORATES_WITH"]);
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
         if (typeof conversationValue === "string" && conversationValue) {
           try { formConversation = JSON.parse(conversationValue); } catch { return NextResponse.json({ error: "Conversation context is malformed." }, { status: 400 }); }
         }
-        body = { message: form.get("message"), conversation: formConversation, userId: form.get("userId") };
+        body = { message: form.get("message"), conversation: formConversation, userId: form.get("userId"), attachmentToken: form.get("attachmentToken") };
       } else {
         const parsed: unknown = await request.json();
         if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return NextResponse.json({ error: "The chat request is malformed." }, { status: 400 });
@@ -95,9 +95,13 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "The chat request is malformed or the upload could not be read." }, { status: 400 });
     }
     const message = typeof body.message === "string" ? body.message.trim() : "";
-    if (!message && !uploadFiles.length) return NextResponse.json({ error: "Please enter a message or attach one or more files." }, { status: 400 });
+    const attachmentToken = typeof body.attachmentToken === "string" ? body.attachmentToken : "";
+    if (!message && !uploadFiles.length && !attachmentToken) return NextResponse.json({ error: "Please enter a message or attach one or more files." }, { status: 400 });
     const userMessage = message || "Please summarize the attached files.";
-    const extractedFiles = uploadFiles.length ? await extractUploadedFiles(uploadFiles, { apiKey }) : [];
+    if (attachmentToken && uploadFiles.length) return NextResponse.json({ error: "Send either the signed attachment preview or the original files, not both." }, { status: 400 });
+    const extractedFiles = attachmentToken
+      ? verifyAttachmentToken(attachmentToken, process.env.UPLOAD_TOKEN_SECRET || apiKey)
+      : uploadFiles.length ? await extractUploadedFiles(uploadFiles, { apiKey }) : [];
     const attachmentContext = attachmentPromptContext(extractedFiles);
     const modelInput = attachmentContext ? `${userMessage}\n\n${attachmentContext}` : userMessage;
     const conversation = sanitizeConversation(body.conversation);
