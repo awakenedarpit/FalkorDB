@@ -84,7 +84,14 @@ async function callProvider(provider: AIProvider, prompt: string, json: boolean)
 export async function generateTextWithFallback(prompt: string, options: GenerateOptions = {}): Promise<string> {
   const excluded = new Set(options.excludeProviders || []);
   const providers = configuredProviders().filter((provider) => !excluded.has(provider) && hasKey(provider));
-  if (!providers.length) throw new AIProviderError("No alternate AI provider is configured. Add a supported provider API key or wait for the current provider quota to reset.", 503);
+  if (!providers.length) {
+    const missing = (excluded.has("gemini") ? ["GROQ_API_KEY", "OPENROUTER_API_KEY"] : ["GEMINI_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"])
+      .filter((key) => !process.env[key]);
+    throw new AIProviderError(
+      `No eligible AI provider is configured. Add a valid key for one of these server environment variables: ${missing.join(", ") || "GROQ_API_KEY or OPENROUTER_API_KEY"}. Restart the Next.js dev server after editing .env.local.`,
+      503,
+    );
+  }
   const failures: string[] = [];
   const statuses: number[] = [];
   for (const provider of providers) {
