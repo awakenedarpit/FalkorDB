@@ -16,6 +16,10 @@ function hasKey(provider: AIProvider): boolean {
   if (provider === "groq") return Boolean(process.env.GROQ_API_KEY);
   return Boolean(process.env.OPENROUTER_API_KEY);
 }
+export function getPrimaryAIProvider(): AIProvider | undefined {
+  return configuredProviders().find(hasKey);
+}
+
 function modelFor(provider: AIProvider): string {
   if (provider === "gemini") return process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash";
   if (provider === "groq") return process.env.GROQ_CHAT_MODEL || "openai/gpt-oss-20b";
