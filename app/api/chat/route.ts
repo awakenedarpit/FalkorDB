@@ -42,10 +42,13 @@ async function generateGroundedAnswer(
 ) {
   const contents: Content[] = [{ role: "user", parts: [{ text: prompt }] }];
   let toolExecutions = 0;
-  const toolConfig = graph ? {
-    tools: [{ functionDeclarations: graphToolDeclarations }],
+  const availableTools = graph
+    ? graphToolDeclarations
+    : graphToolDeclarations.filter((tool) => tool.name === "get_current_datetime");
+  const toolConfig = {
+    tools: [{ functionDeclarations: availableTools }],
     toolConfig: { functionCallingConfig: { mode: FunctionCallingConfigMode.AUTO } },
-  } : undefined;
+  };
   let response = await ai.models.generateContent({ model: process.env.GEMINI_CHAT_MODEL || "gemini-3.5-flash", contents, config: toolConfig });
 
   while (response.functionCalls?.length && toolExecutions < MAX_TOOL_EXECUTIONS) {
@@ -57,7 +60,7 @@ async function generateGroundedAnswer(
       toolExecutions += 1;
       let output: unknown;
       try {
-        output = graph ? await executeGraphTool(graph, userId, call.name, (call.args || {}) as Record<string, unknown>) : { ok: false, error: "Graph memory is unavailable." };
+        output = await executeGraphTool(graph, userId, call.name, (call.args || {}) as Record<string, unknown>);
       } catch (error) {
         console.error("[GRAPH MEMORY] Tool execution failed:", error);
         output = { ok: false, error: "Graph memory could not answer this lookup." };

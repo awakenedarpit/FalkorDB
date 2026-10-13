@@ -3,7 +3,7 @@ import type { GraphQueryRunner } from "@/lib/persistence";
 
 export const MAX_TOOL_EXECUTIONS = 4;
 const MAX_RESULTS = 10;
-const TOOL_NAMES = ["search_memories", "find_entity_relationships"] as const;
+const TOOL_NAMES = ["search_memories", "find_entity_relationships", "get_current_datetime"] as const;
 export type GraphToolName = (typeof TOOL_NAMES)[number];
 
 type ToolArgs = Record<string, unknown>;
@@ -32,7 +32,43 @@ export const graphToolDeclarations: FunctionDeclaration[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "get_current_datetime",
+    description: "Get the current real-world date and time from the server clock. Use this for questions about what time or date it is now, today's date, or time-sensitive greetings. Returns an ISO timestamp and a human-readable time in the configured time zone.",
+    parametersJsonSchema: {
+      type: "object",
+      properties: {},
+      additionalProperties: false,
+    },
+  },
 ];
+
+export function getCurrentDateTime() {
+  const now = new Date();
+  const timeZone = process.env.AGENT_TIME_ZONE || "Asia/Kolkata";
+  let localDateTime: string;
+  try {
+    localDateTime = new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "full",
+      timeStyle: "long",
+      timeZone,
+    }).format(now);
+  } catch {
+    localDateTime = new Intl.DateTimeFormat("en-IN", {
+      dateStyle: "full",
+      timeStyle: "long",
+      timeZone: "UTC",
+    }).format(now);
+  }
+  return {
+    ok: true,
+    iso: now.toISOString(),
+    unixMilliseconds: now.getTime(),
+    timeZone,
+    localDateTime,
+    source: "server clock",
+  };
+}
 
 function textArg(args: ToolArgs, name: string): string | null {
   const value = args[name];
@@ -118,8 +154,10 @@ export async function findEntityRelationships(graph: GraphQueryRunner, userId: s
   return { ok: true, status: "resolved", name, entities, relationships };
 }
 
-export async function executeGraphTool(graph: GraphQueryRunner, userId: string, name: unknown, args: unknown) {
-  if (!isToolName(name)) return { ok: false, error: "Unknown or disallowed graph tool." };
+export async function executeGraphTool(graph: GraphQueryRunner | undefined, userId: string, name: unknown, args: unknown) {
+  if (!isToolName(name)) return { ok: false, error: "Unknown or disallowed agent tool." };
+  if (name === "get_current_datetime") return getCurrentDateTime();
+  if (!graph) return { ok: false, error: "Graph memory is unavailable." };
   const safeArgs = args && typeof args === "object" && !Array.isArray(args) ? args as ToolArgs : {};
   if (name === "search_memories") return searchMemories(graph, userId, safeArgs);
   return findEntityRelationships(graph, userId, safeArgs);
