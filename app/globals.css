@@ -41,14 +41,14 @@
 }
 
 * { box-sizing: border-box; }
-html { background: var(--background); }
-body { margin: 0; background: var(--background); color: var(--foreground); font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+html { height: 100%; background: var(--background); }
+body { height: 100%; margin: 0; overflow: hidden; background: var(--background); color: var(--foreground); font-family: var(--font-geist-sans), Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
 button, a, textarea, input { -webkit-tap-highlight-color: transparent; }
 button, input, textarea { font: inherit; }
 button:focus-visible, a:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 
-.app-shell { display: flex; min-height: 100svh; background: var(--background); color: var(--foreground); }
-.workspace-sidebar { display: flex; width: 282px; flex: 0 0 282px; flex-direction: column; border-right: 1px solid var(--border); background: var(--sidebar); padding: 22px 14px 14px; }
+.app-shell { display: flex; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; background: var(--background); color: var(--foreground); }
+.workspace-sidebar { display: flex; height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior: contain; width: 282px; flex: 0 0 282px; flex-direction: column; border-right: 1px solid var(--border); background: var(--sidebar); padding: 22px 14px 14px; }
 .sidebar-topline { display: flex; align-items: center; justify-content: space-between; padding: 0 10px; }
 .brand { display: inline-flex; min-width: 0; align-items: center; gap: 11px; color: var(--foreground); text-decoration: none; }
 .brand-symbol { display: grid; height: 34px; width: 34px; place-items: center; border-radius: 11px; background: linear-gradient(135deg, #847cff, #5249dd); color: white; font-size: 16px; font-weight: 700; box-shadow: 0 9px 22px rgba(99, 91, 255, .25); }
@@ -99,7 +99,7 @@ kbd { margin-left: auto; border: 1px solid var(--border); border-radius: 5px; co
 .icon-button.small { height: 24px; width: 24px; font-size: 14px; }
 .mobile-close, .mobile-menu, .mobile-page-title { display: none; }
 
-.main-workspace { display: flex; min-width: 0; flex: 1; flex-direction: column; }
+.main-workspace { display: flex; min-width: 0; min-height: 0; height: 100%; flex: 1; flex-direction: column; }
 .topbar { display: flex; height: 67px; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); background: color-mix(in srgb, var(--surface) 84%, transparent); padding: 0 30px; backdrop-filter: blur(20px); }
 .topbar-left, .topbar-actions, .model-picker, .connection-status { display: flex; align-items: center; }
 .topbar-left { gap: 18px; }
@@ -115,7 +115,7 @@ kbd { margin-left: auto; border: 1px solid var(--border); border-radius: 5px; co
 .share-button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--muted-strong); padding: 7px 10px; font-size: 10px; font-weight: 600; }
 .share-button:hover { border-color: var(--border-strong); color: var(--foreground); }
 .top-avatar { height: 29px; width: 29px; border: 0; cursor: pointer; }
-.chat-viewport { min-height: 0; flex: 1; overflow-y: auto; }
+.chat-viewport { min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
 .chat-column { width: min(100% - 48px, 850px); margin: 0 auto; padding: 58px 0 38px; }
 .chat-heading { margin-bottom: 43px; text-align: center; }
 .heading-kicker { display: inline-flex; align-items: center; gap: 7px; color: var(--accent-strong); font-size: 10px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
